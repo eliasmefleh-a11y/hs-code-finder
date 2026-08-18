@@ -3,7 +3,7 @@
    after the first visit. Everything the app needs (data, logic, styles) is
    inlined in index.html, so caching that one file plus the manifest/icons
    is enough for full offline use. */
-const CACHE_NAME = "hscf-cache-v1";
+const CACHE_NAME = "hscf-cache-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -32,10 +32,28 @@ self.addEventListener("activate", event => {
   );
 });
 
-// Cache-first for the app shell, falling back to network; network requests
-// that succeed are stored for next time so the app self-updates gradually.
+// The app's HTML (what you see when you open it) is network-first: every time
+// you open the app with internet access, it fetches the latest version so
+// fixes/updates show up immediately instead of waiting on a stale cached
+// copy to slowly get revalidated. If there's no connection, it falls back
+// to the last cached copy so the app still opens offline.
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+  const isNavigation = event.request.mode === "navigate" || event.request.destination === "document";
+  if (isNavigation) {
+    event.respondWith(
+      fetch(event.request).then(networkResponse => {
+        if (networkResponse && networkResponse.ok) {
+          const copy = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        }
+        return networkResponse;
+      }).catch(() => caches.match(event.request).then(cached => cached || caches.match("./index.html")))
+    );
+    return;
+  }
+  // Everything else (icons, manifest) stays cache-first for speed, with a
+  // background refresh so it still keeps itself current over time.
   event.respondWith(
     caches.match(event.request).then(cached => {
       const fetchPromise = fetch(event.request).then(networkResponse => {
