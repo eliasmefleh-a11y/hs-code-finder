@@ -5704,7 +5704,7 @@ const GOV_TARIFF_DATA = [
 ["8708.10","ﻟﻐﺎﻴﺔ . → -ﻭﺍﻗﻴﺎﺕ ﺍﻟﺼﺩﻤﺎﺕ ﻭﺃﺠﺯﺍﺅﻫﺎ","","","5","11","3","","584","0.3"],
 ["8708.21","ﻟﻐﺎﻴﺔ . → --ﺃﺤﺯﻤﺔ ﺍﻷﻤﺎﻥ","","","5","11","3","","584","0.3"],
 ["8708.29","ﻟﻐﺎﻴﺔ . → --ﻏﻴﺭﻫﺎ )(322","","","5","11","3","","584","0.3"],
-["8708.30","ﻟﻐﺎﻴﺔ . → -ﻤﻜﺎﺒﺢ )ﻓﺭﺍﻤل( ﻭﻤﻜﺎﺒﺢ ﻤﺴﺎﻋﺩﺓ )ﻓﺭﺍﻤل ﺴﺭﻓﻭ(؛ ﺃﺠﺯﺍﺅﻫﺎ","","","5","11","3","","584","0.3"],
+["8708.30","ﻟﻐﺎﻴﺔ . → -ﻤﻜﺎﺒﺢ )ﻓﺭﺍﻤل( ﻭﻤﻜﺎﺒﺢ ﻤﺴﺎﻋﺩﺓ )ﻓﺭﺍﻤل ﺴﺭﻓﻭ(؛ ﺃﺠﺯﺍﺅﻫﺎ","Brakes and servo-brakes (assisted brakes) and parts thereof, for motor vehicles — includes brake calipers, pads, discs, drums, and brake clamps/collars","brake, brakes, brake caliper, caliper, brake pad, brake disc, brake drum, brake clamp, brake collar, frein, freins, etrier de frein, disque de frein, plaquette de frein, tambour de frein, collier de frein, colier frein, colier frem, تيل فرامل, قرص فرامل, دواسة فرامل","5","11","3","","584","0.3"],
 ["8708.40","ﻟﻐﺎﻴﺔ . → -ﻋﻠﺏ ﺘﻐﻴﻴﺭ ﺍﻟﺴﺭﻋﺔ )ﻏﻴﺭﺒﻭﻜﺱ( ﻭﺃﺠﺯﺍﺅﻫﺎ","","","5","11","3","","584","0.3"],
 ["8708.50","ﻟﻐﺎﻴﺔ . → -ﻤﺤﺎﻭﺭ ﺩﺍﻓﻌﺔ ﺫﺍﺕ ﺘﺭﻜﻴﺒﺎﺕ ﻤﻐﻴﺭﺓ ﻟﻠﺴﺭﻋﺔ ،ﻭﺇﻥ ﻜﺎﻨﺕ ﻤﺯﻭﺩﺓ ﺒﻤﻜﻭﻨﺎﺕ ﺃﺨﺭﻯ ﻟﻨﻘل ﺍﻟﺤﺭﻜﺔ ،ﻤﺤﺎﻭﺭ ﺤﺎﻤﻠﺔ؛ ﺃﺠﺯﺍﺅﻫﺎ","","","5","11","3","","584","0.3"],
 ["8708.70","ﻟﻐﺎﻴﺔ . → -ﺩﻭﺍﻟﻴﺏ )ﻋﺠﻼﺕ( ﻭﺃﺠﺯﺍﺅﻫﺎ ﻭﻟﻭﺍﺯﻤﻬﺎ","","","5","11","3","","584","0.3"],
@@ -6229,6 +6229,13 @@ const SYNONYM_GROUPS = [
   // only 2 letters, under buildVocabIndex's length-3 OCR-noise filter, so it never made it into
   // VOCAB automatically — added explicitly here, same fix already applied for "بن"/coffee bean.
   ["vinegar","خل"],
+  // Lebanese garage/customs jargon for brakes borrows heavily from French ("frein"), often
+  // typed phonetically in Latin letters rather than transliterated Arabic — e.g. "colier frem"
+  // for "collier de frein"/brake caliper. These are real French/English trade terms, not
+  // Franco-Arabic, so they need to be searchable directly rather than routed through the
+  // Arabizi (Latin-to-Arabic) transliteration engine, which was guessing at Arabic spellings
+  // for a French word and finding nothing.
+  ["brake","brakes","caliper","brake caliper","frein","freins","etrier de frein","collier de frein","colier frein","colier frem","فرامل","مكابح"],
 ];
 
 /* ============================= ARABIZI (Yamli-style) TRANSLITERATION ============================= */
