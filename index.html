@@ -6635,6 +6635,47 @@ function arabiziSuggestions(rawQuery, maxSuggestions){
   return near.slice(0, maxSuggestions).map(x => ({norm:x.norm, display:x.display, count:x.count, exact:false}));
 }
 
+/* Multi-word Arabizi/Franco-Arabic resolver. arabiziSuggestions() above only ever matches
+   against VOCAB, which is indexed by SINGLE words — so a whole multi-word phrase run through
+   the beam search as one string (e.g. "zeit zeitoun" -> a single long candidate string with a
+   literal space in it) almost never equals a real VOCAB entry, and the fuzzy fallback compares
+   that long multi-word string against single-word entries, which also rarely scores above 0.
+   That's why typing several Lebanese-Arabic-in-English-letters words in a row previously showed
+   no suggestion and matched nothing: the resolver was only ever built and tested for one word
+   at a time. Fix: split on whitespace and resolve each word independently (reusing the existing
+   single-word logic, including the self-teaching "learned" map), then recombine. */
+function resolveArabiziPhrase(rawQuery, qTrim){
+  const words = qTrim.split(/\s+/).filter(Boolean);
+  if(words.length <= 1){
+    const suggestions = arabiziSuggestions(rawQuery, 6);
+    const bridgeWords = (suggestions.length && suggestions[0].exact) ? [suggestions[0].norm] : [];
+    return {suggestions, bridgeWords};
+  }
+  // A whole learned phrase (the user previously clicked a multi-word suggestion chip, which
+  // teaches the FULL typed phrase -> FULL resolved phrase, same mechanism as single words)
+  // takes priority, exactly like the single-word path does.
+  const learnedPhrase = getLearnedMap()[normalizeLatin(qTrim)];
+  if(learnedPhrase){
+    const parts = learnedPhrase.split(/\s+/).filter(Boolean);
+    const displayParts = parts.map(p => (VOCAB.get(p)||{}).display || p);
+    return {
+      suggestions: [{norm:learnedPhrase, display:displayParts.join(" "), count:0, exact:true, learned:true}],
+      bridgeWords: parts
+    };
+  }
+  const perWord = words.map(w => arabiziSuggestions(w, 3));
+  const resolvedWords = perWord.map(s => s.length ? s[0] : null);
+  if(!resolvedWords.some(Boolean)) return {suggestions:[], bridgeWords:[]};
+  const bridgeWords = resolvedWords.filter(Boolean).map(s => s.norm);
+  const combinedDisplay = words.map((w,i) => resolvedWords[i] ? resolvedWords[i].display : w).join(" ");
+  const combinedNorm = words.map((w,i) => resolvedWords[i] ? resolvedWords[i].norm : normalizeLatin(w)).join(" ");
+  const allExact = resolvedWords.every(r => r && r.exact);
+  return {
+    suggestions: [{norm:combinedNorm, display:combinedDisplay, count:0, exact:allExact, learned:false}],
+    bridgeWords
+  };
+}
+
 /* ============================= SEARCH ============================= */
 function expandSynonyms(termLower, matchThreshold){
   // matchThreshold: 1 (default) = require exact/substring match, for a raw typed query.
@@ -6730,8 +6771,14 @@ function scoreRow(entry, rawQuery, bridgeWords){
   // "jebneh" resolves to "جبنة" (cheese). Because these are already verified real words (not
   // arbitrary fuzzy text), a plain word-boundary check here is both safe and accurate.
   if(bridgeWords && bridgeWords.length){
+    let hits = 0;
     for(const bw of bridgeWords){
-      if(wordBoundaryIncludes(entry.arNorm, bw)){ best = Math.max(best, 80); break; }
+      if(wordBoundaryIncludes(entry.arNorm, bw)) hits++;
+    }
+    if(hits > 0){
+      const frac = hits / bridgeWords.length;
+      const score = bridgeWords.length <= 1 ? 80 : 60 + frac * 30;
+      best = Math.max(best, score);
     }
   }
 
@@ -6979,14 +7026,19 @@ function renderResults(){
   const hasArabiziMarker = /[2-9]/.test(qTrim) && !/^\d+$/.test(qTrim); // digit used as a letter, not a numeric code
   const skipArabizi = !hasArabiziMarker && looksLikeKnownEnglishWord(normalizeLatin(qTrim));
   if(isLatinish(q) && !/^\d+$/.test(qTrim) && qTrim.length>1 && !skipArabizi){
-    const suggestions = arabiziSuggestions(q, 6);
+    // resolveArabiziPhrase() handles both single words (delegating straight to
+    // arabiziSuggestions, unchanged behavior) and multi-word Franco-Arabic phrases
+    // (resolving each word independently and recombining) — see its definition above
+    // for why the old single-word-only arabiziSuggestions() call missed whole phrases.
+    const resolved = resolveArabiziPhrase(q, qTrim);
+    const suggestions = resolved.suggestions;
     // Auto-search (before the user picks anything) uses ONLY the single top-ranked exact
     // candidate — using every ambiguous exact candidate at once would silently blend unrelated
     // words back together (e.g. "2ahwe" can genuinely mean either "قهوة"/coffee or "قوة"/power;
     // searching both at once reintroduces the mixed-up-results problem this feature exists to
     // solve). Instead we show ALL real candidates as chips below and let the user click the
     // one they meant — exactly the Yamli-style "pick, don't guess" behavior.
-    if(suggestions.length && suggestions[0].exact) bridgeWords = [suggestions[0].norm];
+    if(suggestions.length && suggestions[0].exact) bridgeWords = resolved.bridgeWords;
     if(suggestions.length){
       const label = suggestions[0].learned ? "Remembered" : suggestions[0].exact ? "Did you mean" : "Closest match";
       preview.innerHTML = `<span class="translit-label">${label}:</span> ` +
