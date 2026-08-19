@@ -6225,6 +6225,10 @@ const SYNONYM_GROUPS = [
   ["screw","nail","بولت","مسمار","براغي"],
   ["crab sticks","crabsticks","crab stick","imitation crab","surimi","أصابع سرطان البحر","سريمي"],
   ["crab","crabs","سرطان البحر","سلطعون","كابوريا"],
+  // "خل" (vinegar) IS in the dataset verbatim (heading 2209 — grape/apple vinegar), but it's
+  // only 2 letters, under buildVocabIndex's length-3 OCR-noise filter, so it never made it into
+  // VOCAB automatically — added explicitly here, same fix already applied for "بن"/coffee bean.
+  ["vinegar","خل"],
 ];
 
 /* ============================= ARABIZI (Yamli-style) TRANSLITERATION ============================= */
@@ -6252,27 +6256,54 @@ const TRANSLIT_ALTS_RAW = [
   ["x",["كس"]], ["c",["ك"]], ["p",["ب"]], ["v",["ف"]], ["u",["و",""]], ["i",["ي",""]],
   ["e",["ي","","ه"]], ["o",["و",""]],
 ];
-// sorted longest-pattern-first so multi-char digraphs are tried before single chars at each position
-const TRANSLIT_ALTS = TRANSLIT_ALTS_RAW.slice().sort((a,b)=> b[0].length - a[0].length);
+/* Franco-Arabic commonly represents a SHADDA (consonant gemination — e.g. "سكّر"/sukkar,
+   "سكين"/sikkeen's "kk", "حمّام"/hammam, "خلّ"/khall, "ستّ"/sitt) by literally typing the Latin
+   consonant twice. Written Arabic represents that with a diacritic on ONE letter — and
+   diacritics are stripped everywhere in this app (see normalizeArabic) — so a doubled Latin
+   consonant should collapse to that SAME single Arabic letter, not two separate ones. Without
+   this, "sukkar" only ever generated candidates with a literal doubled ك ("سوككار"-style) and
+   never reached the real word "سكر", which the app's own dataset already contains 150+ times.
+   Auto-generate a doubled-letter pattern for every consonant/digit alt above, reusing its same
+   alternatives, so e.g. "kk" resolves exactly like a single "k" does. */
+const TRANSLIT_DOUBLED = TRANSLIT_ALTS_RAW
+  .filter(([lat]) => /^[a-z0-9]$/.test(lat) && !"aeiou".includes(lat))
+  .map(([lat, alts]) => [lat + lat, alts]);
+// sorted longest-pattern-first so multi-char digraphs (and the doubled-letter patterns above)
+// are tried before single chars at each position
+const TRANSLIT_ALTS = TRANSLIT_ALTS_RAW.concat(TRANSLIT_DOUBLED).sort((a,b)=> b[0].length - a[0].length);
 
 function isLatinish(str){
   return /^[a-zA-Z0-9\s'2-9]+$/.test(str.trim()) && /[a-zA-Z]/.test(str);
 }
 
 /* Beam-search candidate generator: returns an array of plausible full-string Arabic
-   transliterations of `input`, capped to `maxBeam` at every step so word length can't blow up
-   the combination count. Candidate [0] is always the "primary" (most-likely-letter) guess,
-   matching the old single-guess behavior — everything after it is an alternate spelling. */
+   transliterations of `input`. Runs TWO beams side by side:
+   - `guided`: at every character step, candidates that are no longer a valid PREFIX of any
+     real word in VOCAB_TRIE are dropped — exactly how Yamli narrows down what you're typing
+     against its dictionary as you go, letter by letter, instead of generating every possible
+     spelling and only checking the dictionary at the very end. This is what lets a long,
+     multi-ambiguous word (e.g. "kahrabaiye" -> كهربائية, 4-5 ambiguous letters, 100+ raw
+     combinations) still reliably reach its real dictionary spelling even though a flat
+     maxBeam-width cap would otherwise have truncated the list before ever generating it.
+   - `beam`: the old unguided beam (capped purely by width), kept as a fallback for words that
+     genuinely aren't in VOCAB (e.g. a real Arabic word the dataset just never happens to use) —
+     dictionary guidance can't help there, but we still want a best-guess spelling to show.
+   Real dictionary words (guided candidates that are a COMPLETE word, not just a prefix) are
+   returned first, so callers that just want "the" answer (candidate[0]) get a verified real
+   word whenever one exists. */
 function arabiziCandidates(input, maxBeam){
   maxBeam = maxBeam || 48;
   if(!input) return [];
   const s = input.toLowerCase().trim();
   if(!s) return [];
   let beam = [""];
+  let guided = [""];
+  let guidedAlive = true;
   let i = 0;
   while(i < s.length){
     if(s[i] === ' '){
       beam = beam.map(b => b + ' ');
+      if(guidedAlive) guided = guided.map(b => b + ' ');
       i++;
       continue;
     }
@@ -6288,7 +6319,28 @@ function arabiziCandidates(input, maxBeam){
     }
     beam = Array.from(new Set(newBeam));
     if(beam.length > maxBeam) beam = beam.slice(0, maxBeam);
+    if(guidedAlive){
+      const newGuided = [];
+      for(const b of guided){
+        for(const alt of uniqAlts){
+          const cand = b + alt;
+          if(cand === "" || trieHasPrefix(cand)) newGuided.push(cand);
+        }
+      }
+      const uniqGuided = Array.from(new Set(newGuided));
+      if(uniqGuided.length){
+        guided = uniqGuided.length > maxBeam ? uniqGuided.slice(0, maxBeam) : uniqGuided;
+      } else {
+        guidedAlive = false; // no real word reachable this way — dictionary guidance can't help
+      }
+    }
     i += matchedPat.length;
+  }
+  if(guidedAlive && guided.length){
+    const fullWords = guided.filter(g => trieHasWord(g));
+    const partials = guided.filter(g => !trieHasWord(g));
+    const merged = Array.from(new Set([...fullWords, ...partials, ...beam]));
+    return merged.length > maxBeam ? merged.slice(0, maxBeam) : merged;
   }
   return beam;
 }
@@ -6540,12 +6592,14 @@ let VOCAB = new Map(); // normalized Arabic word -> {count, display}
 function buildVocabIndex(){
   VOCAB = new Map();
   const TOKEN_RE = /[^\p{L}\p{N}]+/u;
-  const add = (norm, display) => {
-    // min length 3: OCR/PDF-extraction artifacts (stray spaces splitting a word mid-diacritic,
-    // e.g. "مرق ّقة" -> a spurious 2-letter "قة" token) are common enough at length 2 to be
-    // unreliable as a suggestion; real short Arabic vocabulary that matters (e.g. "بن"/coffee
-    // bean) is already covered explicitly via SYNONYM_GROUPS.
-    if(!norm || norm.length<3) return;
+  const add = (norm, display, minLen) => {
+    // min length 3 by default: OCR/PDF-extraction artifacts (stray spaces splitting a word
+    // mid-diacritic, e.g. "مرق ّقة" -> a spurious 2-letter "قة" token) are common enough at
+    // length 2 to be unreliable as a suggestion when auto-extracted from the raw tariff text.
+    // SYNONYM_GROUPS entries are hand-curated (not OCR output), so real short words there —
+    // e.g. "بن"/coffee bean, "خل"/vinegar — pass a lower minLen instead of being silently
+    // dropped by this same guard.
+    if(!norm || norm.length < (minLen==null?3:minLen)) return;
     const cur = VOCAB.get(norm);
     if(cur) cur.count++;
     else VOCAB.set(norm, {count:1, display: display || norm});
@@ -6567,9 +6621,48 @@ function buildVocabIndex(){
   }
   for(const group of SYNONYM_GROUPS){
     for(const g of group){
-      if(/[؀-ۿ]/.test(g)) add(normalizeArabic(g), g);
+      if(/[؀-ۿ]/.test(g)) add(normalizeArabic(g), g, 2);
     }
   }
+  buildVocabTrie();
+}
+
+/* Prefix trie over every VOCAB word, used by arabiziCandidates() to do DICTIONARY-GUIDED
+   transliteration (like Yamli) instead of blind combinatorial guessing. A word like
+   "kahrabaiye" (electric) has 4-5 ambiguous letters, each with 2-3 possible Arabic spellings —
+   that is 100+ raw combinations, and the beam-width cap could truncate the list before ever
+   reaching the one combination that happens to be a real word ("كهربائية"). By checking at
+   EVERY character step whether a partial candidate is still a valid prefix of some real VOCAB
+   word, we prune the search to plausible real words as we go, the same way Yamli's dictionary
+   narrows down what you're typing letter by letter — so the correct real word survives even
+   when the raw combination count is far larger than the beam width. */
+let VOCAB_TRIE = {};
+function buildVocabTrie(){
+  VOCAB_TRIE = {};
+  for(const key of VOCAB.keys()){
+    let node = VOCAB_TRIE;
+    for(const ch of key){
+      if(!node[ch]) node[ch] = {};
+      node = node[ch];
+    }
+    node.$ = true;
+  }
+}
+function trieHasPrefix(str){
+  let node = VOCAB_TRIE;
+  for(const ch of str){
+    node = node[ch];
+    if(!node) return false;
+  }
+  return true;
+}
+function trieHasWord(str){
+  let node = VOCAB_TRIE;
+  for(const ch of str){
+    node = node[ch];
+    if(!node) return false;
+  }
+  return !!node.$;
 }
 
 /* ============================= SELF-LEARNING (per-device) ============================= */
