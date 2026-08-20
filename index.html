@@ -642,6 +642,27 @@
   table.calc-table td{ padding:8px 6px; border-bottom:1px solid var(--border); vertical-align:top; }
   table.calc-table td:last-child{ text-align:right; font-variant-numeric:tabular-nums; }
   table.calc-table tr.calc-total td{ font-weight:800; border-top:2px solid var(--border); border-bottom:none; padding-top:12px; font-size:1rem; }
+  table.calc-table-invoice{ margin-bottom:4px; }
+  table.calc-table-invoice td{ border-bottom:none; color:var(--muted); font-size:0.85rem; }
+  .calc-block-label{
+    font-size:0.78rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--muted);
+    margin:16px 0 2px;
+  }
+  .calc-landed-total{
+    margin-top:18px;
+    padding:16px;
+    border-radius:var(--radius);
+    background:rgba(77,109,251,0.12);
+    border:2px solid rgba(77,109,251,0.4);
+    text-align:center;
+  }
+  .calc-landed-label{ font-size:0.8rem; color:var(--muted); margin-bottom:6px; }
+  .calc-landed-amount{ font-size:1.5rem; font-weight:800; color:var(--text); }
+  .calc-landed-amount-lbp{ font-size:0.95rem; color:var(--muted); margin-top:2px; }
   .calc-minval-warning{
     margin-top:10px;
     padding:10px 12px;
@@ -7984,29 +8005,41 @@ function calcComputeAndRender(){
   const totalTaxes = duty + vat + extra + env;
   const landed = invoice + totalTaxes;
 
-  const lineRows = [["Invoice value", invoice]];
-  lineRows.push([`Duty (${dutyPct}%)`, duty]);
-  lineRows.push([`VAT (${vatPct}%)`, vat]);
-  if(row.extraTax) lineRows.push([`Extra tax (${extraPct}%)`, extra]);
-  if(row.envTax) lineRows.push([`Environmental tax (${envPct}%)`, env]);
+  // Kept as three visually separate pieces on purpose, not one blended table: the invoice
+  // value is money already paid to the supplier for the goods themselves; the customs charges
+  // are what's owed to customs on top of that; and the landed cost is only useful as a final
+  // planning number once those two are clearly told apart, not merged into a single figure.
+  const cell = usd => `${calcFmtUSD(usd)}${rate ? `<br><span class="hint" style="margin:0">${calcFmtLBP(usd*rate)}</span>` : ""}`;
 
-  const rowsHtml = lineRows.map(([label, usd]) => `
-    <tr>
-      <td>${escapeHtml(label)}</td>
-      <td>${calcFmtUSD(usd)}${rate ? `<br><span class="hint" style="margin:0">${calcFmtLBP(usd*rate)}</span>` : ""}</td>
-    </tr>`).join("");
+  const invoiceBlock = `
+    <table class="calc-table calc-table-invoice">
+      <tr><td>Invoice value (cost of goods)</td><td>${cell(invoice)}</td></tr>
+    </table>`;
 
-  const totalRow = `
-    <tr class="calc-total">
-      <td>Total landed cost</td>
-      <td>${calcFmtUSD(landed)}${rate ? `<br>${calcFmtLBP(landed*rate)}` : ""}</td>
-    </tr>`;
+  const dutyRows = [[`Duty (${dutyPct}%)`, duty], [`VAT (${vatPct}%)`, vat]];
+  if(row.extraTax) dutyRows.push([`Extra tax (${extraPct}%)`, extra]);
+  if(row.envTax) dutyRows.push([`Environmental tax (${envPct}%)`, env]);
+  const dutyRowsHtml = dutyRows.map(([label, usd]) => `
+    <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
+  const customsBlock = `
+    <div class="calc-block-label">Amount to pay at customs</div>
+    <table class="calc-table">
+      ${dutyRowsHtml}
+      <tr class="calc-total"><td>Total customs charges</td><td>${cell(totalTaxes)}</td></tr>
+    </table>`;
+
+  const landedBlock = `
+    <div class="calc-landed-total">
+      <div class="calc-landed-label">Total landed cost (goods + customs charges)</div>
+      <div class="calc-landed-amount">${calcFmtUSD(landed)}</div>
+      ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(landed*rate)}</div>` : ""}
+    </div>`;
 
   const minVal = parseMinValue(row.notes);
   const minValWarning = minVal ? `
     <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. If your declared value per unit is below this, customs may apply the minimum instead of the invoice value — check your shipment's actual quantity/weight against it before filing.</div>` : "";
 
-  resultsBox.innerHTML = `<table class="calc-table">${rowsHtml}${totalRow}</table>${minValWarning}`;
+  resultsBox.innerHTML = invoiceBlock + customsBlock + landedBlock + minValWarning;
 }
 
 function openCalculatorForCode(code){
