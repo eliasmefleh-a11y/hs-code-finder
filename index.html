@@ -526,6 +526,7 @@
   .chip.extratax{color:var(--warn);border-color:rgba(245,166,35,0.4);}
   .chip.envtax{color:#7fd8c9;border-color:rgba(127,216,201,0.4);}
   .chip.restrict{color:var(--danger);border-color:rgba(241,101,101,0.35);}
+  .chip.minval{color:var(--warn);border-color:rgba(226,163,61,0.5);background:rgba(226,163,61,0.1);font-weight:700;}
   .chip.page{color:var(--muted);}
   .card .actions{
     display:flex;
@@ -600,6 +601,55 @@
     background:rgba(241,101,101,0.15);
     color:var(--danger);
     border:1px solid rgba(241,101,101,0.4);
+  }
+  .calc-section{ margin-bottom:16px; }
+  .calc-label{ display:block; font-size:0.82rem; color:var(--muted); margin-bottom:6px; font-weight:600; }
+  .calc-input{
+    width:100%;
+    padding:11px 13px;
+    border-radius:9px;
+    border:1px solid var(--border);
+    background:var(--panel2);
+    color:var(--text);
+    font-size:0.95rem;
+    outline:none;
+    box-sizing:border-box;
+  }
+  .calc-input:focus{ border-color:var(--accent); }
+  .calc-suggestions{ margin-top:6px; display:flex; flex-direction:column; gap:4px; }
+  .calc-suggestion-item{
+    text-align:left;
+    padding:8px 10px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--panel2);
+    color:var(--text);
+    cursor:pointer;
+    font-size:0.85rem;
+    width:100%;
+  }
+  .calc-suggestion-item:hover{ border-color:var(--accent); }
+  .calc-code-summary{
+    margin-top:10px;
+    padding:10px 12px;
+    border-radius:10px;
+    background:var(--panel2);
+    border:1px solid var(--border);
+    font-size:0.85rem;
+  }
+  .calc-code-summary.empty{ color:var(--muted); }
+  table.calc-table{ width:100%; border-collapse:collapse; font-size:0.88rem; margin:10px 0; }
+  table.calc-table td{ padding:8px 6px; border-bottom:1px solid var(--border); vertical-align:top; }
+  table.calc-table td:last-child{ text-align:right; font-variant-numeric:tabular-nums; }
+  table.calc-table tr.calc-total td{ font-weight:800; border-top:2px solid var(--border); border-bottom:none; padding-top:12px; font-size:1rem; }
+  .calc-minval-warning{
+    margin-top:10px;
+    padding:10px 12px;
+    border-radius:10px;
+    background:rgba(226,163,61,0.12);
+    border:1px solid rgba(226,163,61,0.4);
+    color:var(--warn);
+    font-size:0.85rem;
   }
   table.map-table{
     width:100%;
@@ -676,12 +726,13 @@
   <button type="button" id="disclaimerToggle">Details</button>
 </div>
 <div class="disclaimer" id="disclaimerBox" style="display:none;">
-  ⚠️ Built-in data (5,379 codes) is <b>extracted from the official Lebanese Customs tariff book</b> ("تعريفة الرسوم الجمركية وفقاً للنظام المنسق", Majlis al-A'la lil-Jamarik, 2012 4th amendment), with updates applied throughout: <b>VAT shown as 11%</b> (the book's legacy 10% rate, updated per current rate — a further rise to 12% has been proposed but was not yet confirmed in effect), a flat <b>+3% tax</b> on every code that carries VAT (not limited to any particular chapters) — VAT-exempt codes never carry the +3% — and a new <b>Environmental Tax (الضريبة البيئية)</b> per Law No. 38 (effective 5 January 2026), shown as its own chip at <b>0.10%-0.50%</b> of customs value depending on HS chapter/heading per the law's official rate table; unlike the +3% tax, it applies regardless of VAT/duty status and is collected by Customs the same way as duty. Automated text-extraction from a 640-page PDF can still contain occasional errors, especially in the hierarchical description context — the <b>duty/VAT % and the "Tariff book p.N" reference on each result are the most reliable fields; use the page number to cross-check the original PDF before filing anything consequential.</b> Go to the <b>Import Data</b> tab to load an updated official file if you have one.
+  ⚠️ Built-in data (5,379 codes) is <b>extracted from the official Lebanese Customs tariff book</b> ("تعريفة الرسوم الجمركية وفقاً للنظام المنسق", Majlis al-A'la lil-Jamarik, 2012 4th amendment), with updates applied throughout: <b>VAT shown as 11%</b> (the book's legacy 10% rate, updated per current rate — a further rise to 12% has been proposed but was not yet confirmed in effect), a flat <b>+3% tax</b> on every code that carries VAT (not limited to any particular chapters) — VAT-exempt codes never carry the +3% — and a new <b>Environmental Tax (الضريبة البيئية)</b> per Law No. 38 (effective 5 January 2026, amended 20 August 2026), shown as its own chip ranging from <b>0.1% up to 3%</b> of customs value depending on HS chapter/heading per the current official rate table; unlike the +3% tax, it applies regardless of VAT/duty status and is collected by Customs the same way as duty. Automated text-extraction from a 640-page PDF can still contain occasional errors, especially in the hierarchical description context — the <b>duty/VAT % and the "Tariff book p.N" reference on each result are the most reliable fields; use the page number to cross-check the original PDF before filing anything consequential.</b> Go to the <b>Import Data</b> tab to load an updated official file if you have one.
 </div>
 
 <main>
   <div class="tabs" id="tabs">
     <button data-tab="search" class="active">🔍 Search</button>
+    <button data-tab="calculator">🧮 Calculator</button>
     <button data-tab="favorites">⭐ Favorites</button>
     <button data-tab="history">🕘 History</button>
     <button data-tab="import">⚙️ Advanced</button>
@@ -702,6 +753,29 @@
     <div class="result-count" id="resultCount"></div>
     <div id="resultsList"></div>
     <div id="paywallBox" style="display:none;"></div>
+  </section>
+
+  <!-- CALCULATOR TAB -->
+  <section id="tab-calculator" class="panel" style="display:none;">
+    <div class="calc-section">
+      <label class="calc-label">HS Code</label>
+      <input type="text" id="calcCodeInput" class="calc-input" placeholder="Search a product or paste a code, e.g. 851712" autocomplete="off">
+      <div id="calcCodeSuggestions" class="calc-suggestions"></div>
+      <div id="calcCodeSummary" class="calc-code-summary empty">No HS code selected yet — search above, or tap 🧮 on any search result.</div>
+    </div>
+    <div class="calc-section">
+      <label class="calc-label">Invoice value (USD)</label>
+      <input type="number" id="calcInvoiceValue" class="calc-input" placeholder="e.g. 50000" min="0" step="0.01">
+    </div>
+    <div class="calc-section">
+      <label class="calc-label">Exchange rate (LBP per 1 USD)</label>
+      <input type="number" id="calcExchangeRate" class="calc-input" min="0" step="1">
+      <div class="hint">Lebanon's exchange rate moves — this is an editable estimate, not a live feed. Check today's official/customs rate and update it here if it's changed.</div>
+    </div>
+    <div id="calcResults"></div>
+    <div class="hint" style="margin-top:14px;">
+      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the invoice value, per how Lebanese customs charges these in practice. This does not check the statutory minimum customs value against your actual shipment quantity, doesn't account for exemptions or trade-agreement preferential rates, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
+    </div>
   </section>
 
   <!-- FAVORITES TAB -->
@@ -6940,8 +7014,8 @@ let DATA = []; // array of {code, en, ar, kw, duty, vat, extraTax, envTax, notes
    regardless of chapter — it is NOT limited to non-food chapters, it simply rides on top of VAT
    wherever VAT applies; a VAT-exempt (0%) row never carries the +3%. envTax (10th field, appended
    at the end for backward compatibility) is the separate "Environmental Tax" (الضريبة البيئية)
-   under Lebanese Law No. 38 (effective 5 Jan 2026) — 0.10%-0.50% of customs value depending on HS
-   chapter/heading, collected by Customs the same way as duty/VAT. It is independent of VAT/duty
+   under Lebanese Law No. 38 (effective 5 Jan 2026, amended 20 Aug 2026) — 0.1% to 3% of customs
+   value depending on HS chapter/heading, collected by Customs the same way as duty/VAT. It is independent of VAT/duty
    status (unlike the +3% extra tax) and applies per the law's chapter/heading table regardless of
    whether the code is VAT-exempt. See in-app disclaimer. */
 /* The source PDF extraction stored Arabic text using Arabic Presentation Forms
@@ -7527,6 +7601,24 @@ function findByCode(code){
   return DATA.find(r => r.code === code);
 }
 
+/* Lebanese customs sets an official STATUTORY MINIMUM customs value for certain products (e.g.
+   "حد أدنى :الليتر 6000 LL" = a minimum of 6,000 LL per liter) — if a shipment's declared value
+   per unit comes in under this floor, customs applies the minimum instead of the declared value.
+   This is real, government-set data already embedded in ~324 rows' notes field (as free text,
+   since it comes straight from the scanned tariff book) — this just extracts it into a clean
+   headline so it's visible at a glance instead of buried in a wall of Arabic. The raw note text
+   is always preserved too (in the badge's title/tooltip and in the fallback), so nothing is ever
+   hidden behind a parse that might not perfectly match an unusual/malformed entry. */
+function parseMinValue(notes){
+  if(!notes) return null;
+  const m = notes.match(/حد\s*أدنى\s*:?\s*([^\d]+?)\s*([\d,.]+)\s*LL/);
+  if(!m) return null;
+  const unit = m[1].trim();
+  const amount = m[2].replace(/,/g, "");
+  if(!unit || !amount) return null;
+  return { unit, amount };
+}
+
 function renderCard(row){
   const favs = getFavorites();
   const isFav = favs.includes(row.code);
@@ -7536,7 +7628,12 @@ function renderCard(row){
   const vatChip = row.vat !== "" && row.vat !== undefined ? `<span class="chip vat">VAT ${escapeHtml(row.vat)}%</span>` : "";
   const extraTaxChip = row.extraTax ? `<span class="chip extratax">+${escapeHtml(row.extraTax)}% tax</span>` : "";
   const envTaxChip = row.envTax ? `<span class="chip envtax">+${escapeHtml(row.envTax)}% environmental tax</span>` : "";
-  const notesChip = row.notes ? `<span class="chip restrict">${escapeHtml(row.notes)}</span>` : "";
+  const minVal = parseMinValue(row.notes);
+  const notesChip = row.notes
+    ? (minVal
+        ? `<span class="chip minval" title="${escapeHtml(row.notes)}">⚠️ Min. customs value: ${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</span>`
+        : `<span class="chip restrict">${escapeHtml(row.notes)}</span>`)
+    : "";
   const pageChip = row.page ? `<span class="chip page">Tariff book p.${escapeHtml(String(row.page))}</span>` : "";
   return `
   <div class="card" data-code="${row.code}">
@@ -7559,6 +7656,7 @@ function renderCard(row){
       <button class="icon-btn ${isFav?'fav-on':''}" data-action="fav" data-code="${row.code}" title="Save to favorites">${isFav?'★':'☆'}</button>
       <button class="icon-btn" data-action="copy" data-code="${row.code}" title="Copy code">⧉</button>
       <button class="icon-btn" data-action="teach" data-code="${row.code}" title="Teach a word for this code">🎓</button>
+      <button class="icon-btn" data-action="calc" data-code="${row.code}" title="Calculate duty &amp; taxes for this code">🧮</button>
     </div>
   </div>`;
 }
@@ -7723,6 +7821,7 @@ document.getElementById("resultsList").addEventListener("click", e => {
   const favBtn = e.target.closest('[data-action="fav"]');
   const copyBtn = e.target.closest('[data-action="copy"]');
   const teachBtn = e.target.closest('[data-action="teach"]');
+  const calcBtn = e.target.closest('[data-action="calc"]');
   const codeEl = e.target.closest(".code");
   if(favBtn){
     toggleFavorite(favBtn.dataset.code);
@@ -7732,6 +7831,8 @@ document.getElementById("resultsList").addEventListener("click", e => {
     flashStatus(copyBtn, "Copied");
   } else if(teachBtn){
     openTeachModal(teachBtn.dataset.code);
+  } else if(calcBtn){
+    openCalculatorForCode(calcBtn.dataset.code);
   } else if(codeEl){
     navigator.clipboard?.writeText(codeEl.textContent.trim()).catch(()=>{});
     flashStatus(codeEl, "Copied");
@@ -7741,9 +7842,11 @@ document.getElementById("favoritesList").addEventListener("click", e => {
   const favBtn = e.target.closest('[data-action="fav"]');
   const copyBtn = e.target.closest('[data-action="copy"]');
   const teachBtn = e.target.closest('[data-action="teach"]');
+  const calcBtn = e.target.closest('[data-action="calc"]');
   if(favBtn){ toggleFavorite(favBtn.dataset.code); renderFavorites(); }
   else if(copyBtn){ navigator.clipboard?.writeText(copyBtn.dataset.code).catch(()=>{}); }
   else if(teachBtn){ openTeachModal(teachBtn.dataset.code); }
+  else if(calcBtn){ openCalculatorForCode(calcBtn.dataset.code); }
 });
 document.getElementById("clearFavsBtn").addEventListener("click", () => {
   setFavorites([]); renderFavorites();
@@ -7813,14 +7916,154 @@ document.getElementById("disclaimerToggle").addEventListener("click", () => {
   document.getElementById("disclaimerToggle").textContent = open ? "Details" : "Hide details";
 });
 
+/* ============================= CUSTOMS DUTY/TAX CALCULATOR ============================= */
+/* Every row already carries duty%, VAT%, extra-tax%, and environmental-tax% — this just applies
+   each one as a flat percentage of the entered invoice value (confirmed against real practice:
+   these are NOT cascaded on top of each other, each is its own % of the same invoice amount) and
+   totals them into a landed-cost estimate, shown in both USD and LBP. The LBP exchange rate is a
+   plain editable number (not fetched live) — Lebanon's rate moves and sometimes diverges between
+   the market rate and whatever customs is using that week, so baking in a fixed number would just
+   go stale the same way a hardcoded "world price" would; better to let the person using it keep
+   it current with one glance at today's rate. */
+const CALC_RATE_KEY = "hscf_calc_exchange_rate";
+const CALC_DEFAULT_RATE = 89500; // rough LBP-per-USD market rate as of Aug 2026 — just a starting point, always editable
+let calcSelectedCode = null;
+
+function calcFmtUSD(n){
+  return "$" + n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function calcFmtLBP(n){
+  return Math.round(n).toLocaleString("en-US") + " LL";
+}
+
+function renderCalcCodeSummary(){
+  const box = document.getElementById("calcCodeSummary");
+  if(!box) return;
+  if(!calcSelectedCode){
+    box.className = "calc-code-summary empty";
+    box.textContent = "No HS code selected yet — search above, or tap 🧮 on any search result.";
+    return;
+  }
+  const row = findByCode(calcSelectedCode);
+  if(!row){
+    box.className = "calc-code-summary empty";
+    box.textContent = "Code not found.";
+    return;
+  }
+  box.className = "calc-code-summary";
+  const desc = (currentLang === "ar" ? row.ar : (row.en || row.ar)) || "";
+  box.innerHTML = `<b>${escapeHtml(row.code)}</b> — ${escapeHtml(desc)}`;
+}
+
+function calcComputeAndRender(){
+  const resultsBox = document.getElementById("calcResults");
+  if(!resultsBox) return;
+  if(!calcSelectedCode){ resultsBox.innerHTML = ""; return; }
+  const row = findByCode(calcSelectedCode);
+  if(!row){ resultsBox.innerHTML = ""; return; }
+
+  const invoiceInput = document.getElementById("calcInvoiceValue");
+  const rateInput = document.getElementById("calcExchangeRate");
+  const invoice = parseFloat(invoiceInput.value);
+  const rate = parseFloat(rateInput.value) || 0;
+
+  if(!invoiceInput.value || isNaN(invoice) || invoice <= 0){
+    resultsBox.innerHTML = `<div class="hint">Enter an invoice value above to see the breakdown.</div>`;
+    return;
+  }
+
+  const dutyPct = parseFloat(row.duty) || 0;
+  const vatPct = parseFloat(row.vat) || 0;
+  const extraPct = parseFloat(row.extraTax) || 0;
+  const envPct = parseFloat(row.envTax) || 0;
+
+  const duty = invoice * dutyPct / 100;
+  const vat = invoice * vatPct / 100;
+  const extra = invoice * extraPct / 100;
+  const env = invoice * envPct / 100;
+  const totalTaxes = duty + vat + extra + env;
+  const landed = invoice + totalTaxes;
+
+  const lineRows = [["Invoice value", invoice]];
+  lineRows.push([`Duty (${dutyPct}%)`, duty]);
+  lineRows.push([`VAT (${vatPct}%)`, vat]);
+  if(row.extraTax) lineRows.push([`Extra tax (${extraPct}%)`, extra]);
+  if(row.envTax) lineRows.push([`Environmental tax (${envPct}%)`, env]);
+
+  const rowsHtml = lineRows.map(([label, usd]) => `
+    <tr>
+      <td>${escapeHtml(label)}</td>
+      <td>${calcFmtUSD(usd)}${rate ? `<br><span class="hint" style="margin:0">${calcFmtLBP(usd*rate)}</span>` : ""}</td>
+    </tr>`).join("");
+
+  const totalRow = `
+    <tr class="calc-total">
+      <td>Total landed cost</td>
+      <td>${calcFmtUSD(landed)}${rate ? `<br>${calcFmtLBP(landed*rate)}` : ""}</td>
+    </tr>`;
+
+  const minVal = parseMinValue(row.notes);
+  const minValWarning = minVal ? `
+    <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. If your declared value per unit is below this, customs may apply the minimum instead of the invoice value — check your shipment's actual quantity/weight against it before filing.</div>` : "";
+
+  resultsBox.innerHTML = `<table class="calc-table">${rowsHtml}${totalRow}</table>${minValWarning}`;
+}
+
+function openCalculatorForCode(code){
+  calcSelectedCode = code;
+  switchTab("calculator");
+  renderCalcCodeSummary();
+  calcComputeAndRender();
+  const inp = document.getElementById("calcInvoiceValue");
+  if(inp) inp.focus();
+}
+
+const calcCodeInputEl = document.getElementById("calcCodeInput");
+if(calcCodeInputEl){
+  calcCodeInputEl.addEventListener("input", e => {
+    const q = e.target.value.trim();
+    const box = document.getElementById("calcCodeSuggestions");
+    if(!q){ box.innerHTML = ""; return; }
+    const results = runSearch(q, []).slice(0, 8);
+    box.innerHTML = results.map(r => {
+      const desc = ((currentLang === "ar" ? r.ar : (r.en || r.ar)) || "").slice(0, 70);
+      return `<button type="button" class="calc-suggestion-item" data-code="${escapeHtml(r.code)}">${escapeHtml(r.code)} — ${escapeHtml(desc)}</button>`;
+    }).join("");
+  });
+}
+const calcCodeSuggestionsEl = document.getElementById("calcCodeSuggestions");
+if(calcCodeSuggestionsEl){
+  calcCodeSuggestionsEl.addEventListener("click", e => {
+    const btn = e.target.closest("[data-code]");
+    if(!btn) return;
+    calcSelectedCode = btn.dataset.code;
+    document.getElementById("calcCodeInput").value = "";
+    calcCodeSuggestionsEl.innerHTML = "";
+    renderCalcCodeSummary();
+    calcComputeAndRender();
+  });
+}
+const calcInvoiceValueEl = document.getElementById("calcInvoiceValue");
+if(calcInvoiceValueEl) calcInvoiceValueEl.addEventListener("input", calcComputeAndRender);
+const calcExchangeRateEl = document.getElementById("calcExchangeRate");
+if(calcExchangeRateEl){
+  calcExchangeRateEl.addEventListener("input", () => {
+    Store.set(CALC_RATE_KEY, calcExchangeRateEl.value);
+    calcComputeAndRender();
+  });
+  const savedRate = Store.get(CALC_RATE_KEY, null);
+  calcExchangeRateEl.value = savedRate || CALC_DEFAULT_RATE;
+}
+
 /* Tabs */
 function switchTab(tab){
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
-  ["search","favorites","history","import"].forEach(t => {
+  ["search","calculator","favorites","history","import"].forEach(t => {
     document.getElementById("tab-"+t).style.display = (t===tab) ? "block" : "none";
   });
   if(tab === "favorites") renderFavorites();
   if(tab === "history") renderHistory();
+  if(tab === "calculator"){ renderCalcCodeSummary(); calcComputeAndRender(); }
 }
 document.getElementById("tabs").addEventListener("click", e => {
   const btn = e.target.closest("button[data-tab]");
