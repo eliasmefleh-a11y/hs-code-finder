@@ -6864,9 +6864,13 @@ function levenshtein(a,b){
    matching works. So tokens whose length differs too much from the candidate are skipped
    entirely, and for short candidates we additionally require a small ABSOLUTE edit distance
    (not just a ratio) before considering it a similarity hit at all. */
-function fuzzyTokenSimilarity(candidate, textNorm){
+function fuzzyTokenSimilarity(candidate, textNorm, precomputedTokens){
   if(!candidate || !textNorm) return 0;
-  const tokens = textNorm.split(/[^\p{L}\p{N}]+/u).filter(t=>t.length>=2);
+  // Tokenizing is the expensive part here (regex split + filter over the row's full text),
+  // and this runs once per dataset row per search. The caller (scoreRow) precomputes each
+  // row's tokens ONCE when the index is built and passes them in, instead of re-splitting the
+  // same unchanging row text on every single keystroke's search.
+  const tokens = precomputedTokens || textNorm.split(/[^\p{L}\p{N}]+/u).filter(t=>t.length>=2);
   const cLen = candidate.length;
   // max tolerable absolute edit distance for a candidate of this length — short words need
   // near-exact matches, longer words can tolerate a couple of genuine typos/transliteration slips.
@@ -7011,11 +7015,18 @@ function resetDataset(){
 /* search index: precompute normalized fields */
 let INDEX = [];
 function buildIndex(){
-  INDEX = DATA.map(row => ({
-    row,
-    enNorm: normalizeLatin(row.en + " " + (row.kw||"")),
-    arNorm: normalizeArabic(row.ar + " " + (row.kw||"")),
-  }));
+  INDEX = DATA.map(row => {
+    const enNorm = normalizeLatin(row.en + " " + (row.kw||""));
+    const arNorm = normalizeArabic(row.ar + " " + (row.kw||""));
+    return {
+      row,
+      enNorm,
+      arNorm,
+      // Precomputed once here instead of on every search — see fuzzyTokenSimilarity's comment.
+      enTokens: enNorm.split(/[^\p{L}\p{N}]+/u).filter(t=>t.length>=2),
+      arTokens: arNorm.split(/[^\p{L}\p{N}]+/u).filter(t=>t.length>=2),
+    };
+  });
   buildVocabIndex();
 }
 
@@ -7240,7 +7251,7 @@ function expandSynonyms(termLower, matchThreshold){
   return Array.from(extra);
 }
 
-function scoreRow(entry, rawQuery, bridgeWords){
+function scoreRow(entry, rawQuery, bridgeWords, syns){
   const q = rawQuery.trim();
   if(!q) return 0;
   const qLower = normalizeLatin(q);
@@ -7274,7 +7285,7 @@ function scoreRow(entry, rawQuery, bridgeWords){
   if(qArabicNorm && /[؀-ۿ]/.test(q)){
     if(entry.arNorm.includes(qArabicNorm)) best = Math.max(best, 90);
     else {
-      const sim = fuzzyTokenSimilarity(qArabicNorm, entry.arNorm);
+      const sim = fuzzyTokenSimilarity(qArabicNorm, entry.arNorm, entry.arTokens);
       if(sim >= 0.72) best = Math.max(best, 55 + sim*20);
     }
   }
@@ -7292,7 +7303,7 @@ function scoreRow(entry, rawQuery, bridgeWords){
     } else if(prefixHit && qLower.length >= 4){
       best = Math.max(best, 55); // starts a longer word — as-you-type prefix, lower confidence
     } else if(qLower.length >= 4){
-      const sim = fuzzyTokenSimilarity(qLower, entry.enNorm);
+      const sim = fuzzyTokenSimilarity(qLower, entry.enNorm, entry.enTokens);
       if(sim >= 0.75) best = Math.max(best, 50 + sim*20);
     }
   }
@@ -7325,16 +7336,18 @@ function scoreRow(entry, rawQuery, bridgeWords){
   // key includes the raw typed query (normalized, so a directly-typed Arabic query matches
   // group members regardless of spelling variant) and the Arabizi bridge words, so "mobayl"
   // can match the "موبايل" entry in a synonym group just like typing "موبايل" directly would.
-  const synKeys = [qLower];
-  if(qArabicNorm && /[؀-ۿ]/.test(q)) synKeys.push(qArabicNorm);
-  synKeys.push(...(bridgeWords||[]));
-  const syns = new Set();
-  for(const key of synKeys) expandSynonyms(key, 1).forEach(s => syns.add(s));
-  for(const syn of syns){
-    if(/[؀-ۿ]/.test(syn)){
-      if(wordBoundaryIncludes(entry.arNorm, normalizeArabic(syn))) best = Math.max(best, 72);
-    } else {
-      if(wordBoundaryIncludes(entry.enNorm, syn)) best = Math.max(best, 72);
+  // `syns` is computed ONCE per search in runSearch() and passed in here — it depends only on
+  // the query/bridgeWords, not on the row being scored, so recomputing it inside this function
+  // (which runs once per row, thousands of times per search) was pure wasted work that got
+  // much more expensive as the synonym dictionary grew, and was the main cause of the app
+  // feeling sluggish/laggy while typing.
+  if(syns){
+    for(const syn of syns){
+      if(/[؀-ۿ]/.test(syn)){
+        if(wordBoundaryIncludes(entry.arNorm, normalizeArabic(syn))) best = Math.max(best, 72);
+      } else {
+        if(wordBoundaryIncludes(entry.enNorm, syn)) best = Math.max(best, 72);
+      }
     }
   }
 
@@ -7355,7 +7368,18 @@ function runSearch(query, bridgeWords){
   if(!query || !query.trim()){
     return [];
   }
-  const scored = INDEX.map(e => ({e, score: scoreRow(e, query, bridgeWords)}))
+  const qTrim = query.trim();
+  const qLower = normalizeLatin(qTrim);
+  const qArabicNorm = normalizeArabic(qTrim);
+  // Computed once per search (not per row — see the comment on step 5 in scoreRow for why
+  // that matters for typing responsiveness).
+  const synKeys = [qLower];
+  if(qArabicNorm && /[؀-ۿ]/.test(qTrim)) synKeys.push(qArabicNorm);
+  synKeys.push(...(bridgeWords||[]));
+  const syns = new Set();
+  for(const key of synKeys) expandSynonyms(key, 1).forEach(s => syns.add(s));
+
+  const scored = INDEX.map(e => ({e, score: scoreRow(e, query, bridgeWords, syns)}))
     .filter(x => x.score > 0)
     .sort((a,b)=> b.score - a.score)
     .slice(0, 60);
