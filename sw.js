@@ -3,16 +3,16 @@
    after the first visit. Everything the app needs (data, logic, styles) is
    inlined in index.html, so caching that one file plus the manifest/icons
    is enough for full offline use. */
-const CACHE_NAME = "hscf-cache-v3";
+const CACHE_NAME = "hscf-cache-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png",
-  "./icon-maskable-192.png",
-  "./icon-maskable-512.png",
-  "./apple-touch-icon.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/icon-maskable-192.png",
+  "./icons/icon-maskable-512.png",
+  "./icons/apple-touch-icon.png",
   "./favicon.ico"
 ];
 
