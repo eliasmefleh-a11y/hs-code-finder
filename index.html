@@ -672,6 +672,53 @@
     color:var(--warn);
     font-size:0.85rem;
   }
+  .calc-item{
+    padding:14px;
+    margin-bottom:12px;
+    border-radius:var(--radius);
+    border:1px solid var(--border);
+    background:var(--panel2);
+  }
+  .calc-item-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:10px;
+  }
+  .calc-item-label{ font-size:0.85rem; font-weight:700; color:var(--text); }
+  .calc-item-remove{
+    padding:4px 10px;
+    border-radius:999px;
+    background:transparent;
+    color:var(--danger);
+    border:1px solid rgba(239,90,90,0.4);
+    font-size:0.78rem;
+    cursor:pointer;
+  }
+  .calc-item-remove:hover{ background:rgba(239,90,90,0.1); }
+  .calc-add-item-btn{ width:100%; margin-bottom:16px; }
+  .calc-item-result{
+    padding:14px;
+    margin-bottom:12px;
+    border-radius:var(--radius);
+    border:1px solid var(--border);
+  }
+  .calc-item-result-title{
+    font-size:0.85rem;
+    font-weight:700;
+    color:var(--text);
+    margin-bottom:4px;
+  }
+  .calc-landed-total-item{ margin-top:12px; padding:12px; }
+  .calc-landed-total-item .calc-landed-amount{ font-size:1.2rem; }
+  .calc-shipment-total{
+    margin-top:6px;
+    margin-bottom:18px;
+    padding:16px;
+    border-radius:var(--radius);
+    border:2px solid rgba(51,209,122,0.4);
+    background:rgba(51,209,122,0.08);
+  }
   table.map-table{
     width:100%;
     border-collapse:collapse;
@@ -778,20 +825,12 @@
 
   <!-- CALCULATOR TAB -->
   <section id="tab-calculator" class="panel" style="display:none;">
-    <div class="calc-section">
-      <label class="calc-label">HS Code</label>
-      <input type="text" id="calcCodeInput" class="calc-input" placeholder="Search a product or paste a code, e.g. 851712" autocomplete="off">
-      <div id="calcCodeSuggestions" class="calc-suggestions"></div>
-      <div id="calcCodeSummary" class="calc-code-summary empty">No HS code selected yet — search above, or tap 🧮 on any search result.</div>
-    </div>
-    <div class="calc-section">
-      <label class="calc-label">Invoice value (USD)</label>
-      <input type="number" id="calcInvoiceValue" class="calc-input" placeholder="e.g. 50000" min="0" step="0.01">
-    </div>
+    <div id="calcLineItems"></div>
+    <button type="button" class="btn secondary calc-add-item-btn" id="calcAddItemBtn">+ Add another item</button>
     <div class="calc-section">
       <label class="calc-label">Exchange rate (LBP per 1 USD)</label>
       <input type="number" id="calcExchangeRate" class="calc-input" min="0" step="1">
-      <div class="hint">Lebanon's exchange rate moves — this is an editable estimate, not a live feed. Check today's official/customs rate and update it here if it's changed.</div>
+      <div class="hint">Lebanon's exchange rate moves — this is an editable estimate, not a live feed. Check today's official/customs rate and update it here if it's changed. This one rate applies to every item below.</div>
     </div>
     <div id="calcResults"></div>
     <div class="hint" style="margin-top:14px;">
@@ -7948,7 +7987,16 @@ document.getElementById("disclaimerToggle").addEventListener("click", () => {
    it current with one glance at today's rate. */
 const CALC_RATE_KEY = "hscf_calc_exchange_rate";
 const CALC_DEFAULT_RATE = 89500; // rough LBP-per-USD market rate as of Aug 2026 — just a starting point, always editable
-let calcSelectedCode = null;
+
+// Multi-item shipment support: calcItems holds the ordered list of item ids (starts with one,
+// so single-code use — the common case — looks and behaves exactly as it did before this was
+// added). Code selection and typed invoice values live in these two maps, keyed by item id, so
+// they survive re-rendering the line-item DOM when items are added/removed (an uncontrolled
+// <input> would otherwise lose its value the moment its container's innerHTML is rebuilt).
+let calcItems = [1];
+let calcNextItemId = 2;
+const calcItemCode = {};
+const calcItemInvoice = {};
 
 function calcFmtUSD(n){
   return "$" + n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -7957,127 +8005,200 @@ function calcFmtLBP(n){
   return Math.round(n).toLocaleString("en-US") + " LL";
 }
 
-function renderCalcCodeSummary(){
-  const box = document.getElementById("calcCodeSummary");
-  if(!box) return;
-  if(!calcSelectedCode){
-    box.className = "calc-code-summary empty";
-    box.textContent = "No HS code selected yet — search above, or tap 🧮 on any search result.";
-    return;
-  }
-  const row = findByCode(calcSelectedCode);
-  if(!row){
-    box.className = "calc-code-summary empty";
-    box.textContent = "Code not found.";
-    return;
-  }
-  box.className = "calc-code-summary";
-  const desc = (currentLang === "ar" ? row.ar : (row.en || row.ar)) || "";
-  box.innerHTML = `<b>${escapeHtml(row.code)}</b> — ${escapeHtml(desc)}`;
+function renderCalcItems(){
+  const container = document.getElementById("calcLineItems");
+  if(!container) return;
+  const multi = calcItems.length > 1;
+  container.innerHTML = calcItems.map((id, idx) => {
+    const code = calcItemCode[id] || null;
+    const row = code ? findByCode(code) : null;
+    const summaryClass = (code && row) ? "calc-code-summary" : "calc-code-summary empty";
+    const summaryHtml = (code && row)
+      ? `<b>${escapeHtml(row.code)}</b> — ${escapeHtml((currentLang === "ar" ? row.ar : (row.en || row.ar)) || "")}`
+      : (code ? "Code not found." : "No HS code selected yet — search above, or tap 🧮 on any search result.");
+    const invoiceVal = calcItemInvoice[id] || "";
+    return `
+    <div class="calc-item">
+      ${multi ? `<div class="calc-item-header"><span class="calc-item-label">Item ${idx+1}</span><button type="button" class="calc-item-remove" data-item-id="${id}">✕ Remove</button></div>` : ""}
+      <div class="calc-section">
+        <label class="calc-label">HS Code</label>
+        <input type="text" class="calc-input calc-item-code-input" data-item-id="${id}" placeholder="Search a product or paste a code, e.g. 851712" autocomplete="off">
+        <div class="calc-suggestions calc-item-code-suggestions" data-item-id="${id}"></div>
+        <div class="${summaryClass} calc-item-code-summary" data-item-id="${id}">${summaryHtml}</div>
+      </div>
+      <div class="calc-section">
+        <label class="calc-label">Invoice value (USD)</label>
+        <input type="number" class="calc-input calc-item-invoice-input" data-item-id="${id}" placeholder="e.g. 50000" min="0" step="0.01" value="${escapeHtml(invoiceVal)}">
+      </div>
+    </div>`;
+  }).join("");
 }
 
 function calcComputeAndRender(){
   const resultsBox = document.getElementById("calcResults");
   if(!resultsBox) return;
-  if(!calcSelectedCode){ resultsBox.innerHTML = ""; return; }
-  const row = findByCode(calcSelectedCode);
-  if(!row){ resultsBox.innerHTML = ""; return; }
+  const rate = parseFloat(document.getElementById("calcExchangeRate").value) || 0;
+  // Kept as visually separate pieces on purpose, not one blended table: the invoice value is
+  // money already paid to the supplier for the goods themselves; the customs charges are what's
+  // owed to customs on top of that; and the landed cost is only useful as a final planning
+  // number once those two are clearly told apart, not merged into a single figure.
+  const cell = usd => `${calcFmtUSD(usd)}${rate ? `<br><span class="hint" style="margin:0">${calcFmtLBP(usd*rate)}</span>` : ""}`;
+  const multi = calcItems.length > 1;
 
-  const invoiceInput = document.getElementById("calcInvoiceValue");
-  const rateInput = document.getElementById("calcExchangeRate");
-  const invoice = parseFloat(invoiceInput.value);
-  const rate = parseFloat(rateInput.value) || 0;
+  const itemBlocks = [];
+  let sumInvoice = 0, sumDuty = 0, sumVat = 0, sumExtra = 0, sumEnv = 0, sumTaxes = 0, sumLanded = 0;
+  let validCount = 0;
 
-  if(!invoiceInput.value || isNaN(invoice) || invoice <= 0){
-    resultsBox.innerHTML = `<div class="hint">Enter an invoice value above to see the breakdown.</div>`;
+  calcItems.forEach((id, idx) => {
+    const code = calcItemCode[id];
+    if(!code) return;
+    const row = findByCode(code);
+    if(!row) return;
+    const invoice = parseFloat(calcItemInvoice[id]);
+    if(!calcItemInvoice[id] || isNaN(invoice) || invoice <= 0) return;
+    validCount++;
+
+    const dutyPct = parseFloat(row.duty) || 0;
+    const vatPct = parseFloat(row.vat) || 0;
+    const extraPct = parseFloat(row.extraTax) || 0;
+    const envPct = parseFloat(row.envTax) || 0;
+    const duty = invoice * dutyPct / 100;
+    const vat = invoice * vatPct / 100;
+    const extra = invoice * extraPct / 100;
+    const env = invoice * envPct / 100;
+    const totalTaxes = duty + vat + extra + env;
+    const landed = invoice + totalTaxes;
+
+    sumInvoice += invoice; sumDuty += duty; sumVat += vat; sumExtra += extra; sumEnv += env;
+    sumTaxes += totalTaxes; sumLanded += landed;
+
+    const dutyRows = [[`Duty (${dutyPct}%)`, duty], [`VAT (${vatPct}%)`, vat]];
+    if(row.extraTax) dutyRows.push([`Extra tax (${extraPct}%)`, extra]);
+    if(row.envTax) dutyRows.push([`Environmental tax (${envPct}%)`, env]);
+    const dutyRowsHtml = dutyRows.map(([label, usd]) => `
+      <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
+
+    const minVal = parseMinValue(row.notes);
+    const minValWarning = minVal ? `
+      <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. If your declared value per unit is below this, customs may apply the minimum instead of the invoice value — check your shipment's actual quantity/weight against it before filing.</div>` : "";
+
+    const desc = (currentLang === "ar" ? row.ar : (row.en || row.ar)) || "";
+    itemBlocks.push(`
+      <div class="calc-item-result">
+        ${multi ? `<div class="calc-item-result-title">Item ${idx+1}: <b>${escapeHtml(row.code)}</b> — ${escapeHtml(desc)}</div>` : ""}
+        <table class="calc-table calc-table-invoice">
+          <tr><td>Invoice value (cost of goods)</td><td>${cell(invoice)}</td></tr>
+        </table>
+        <div class="calc-block-label">Amount to pay at customs</div>
+        <table class="calc-table">
+          ${dutyRowsHtml}
+          <tr class="calc-total"><td>Total customs charges</td><td>${cell(totalTaxes)}</td></tr>
+        </table>
+        <div class="calc-landed-total${multi ? " calc-landed-total-item" : ""}">
+          <div class="calc-landed-label">${multi ? "Landed cost — this item" : "Total landed cost (goods + customs charges)"}</div>
+          <div class="calc-landed-amount">${calcFmtUSD(landed)}</div>
+          ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(landed*rate)}</div>` : ""}
+        </div>
+        ${minValWarning}
+      </div>`);
+  });
+
+  if(validCount === 0){
+    resultsBox.innerHTML = `<div class="hint">Select an HS code and enter an invoice value for at least one item to see the breakdown.</div>`;
     return;
   }
 
-  const dutyPct = parseFloat(row.duty) || 0;
-  const vatPct = parseFloat(row.vat) || 0;
-  const extraPct = parseFloat(row.extraTax) || 0;
-  const envPct = parseFloat(row.envTax) || 0;
+  let shipmentTotalHtml = "";
+  if(validCount > 1){
+    const sumRows = [[`Duty`, sumDuty], [`VAT`, sumVat]];
+    if(sumExtra) sumRows.push([`Extra tax`, sumExtra]);
+    if(sumEnv) sumRows.push([`Environmental tax`, sumEnv]);
+    const sumRowsHtml = sumRows.map(([label, usd]) => `
+      <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
+    shipmentTotalHtml = `
+      <div class="calc-shipment-total">
+        <div class="calc-block-label">Shipment total — ${validCount} items</div>
+        <table class="calc-table calc-table-invoice">
+          <tr><td>Total invoice value</td><td>${cell(sumInvoice)}</td></tr>
+        </table>
+        <table class="calc-table">
+          ${sumRowsHtml}
+          <tr class="calc-total"><td>Total customs charges</td><td>${cell(sumTaxes)}</td></tr>
+        </table>
+        <div class="calc-landed-total">
+          <div class="calc-landed-label">Total landed cost — whole shipment</div>
+          <div class="calc-landed-amount">${calcFmtUSD(sumLanded)}</div>
+          ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(sumLanded*rate)}</div>` : ""}
+        </div>
+      </div>`;
+  }
 
-  const duty = invoice * dutyPct / 100;
-  const vat = invoice * vatPct / 100;
-  const extra = invoice * extraPct / 100;
-  const env = invoice * envPct / 100;
-  const totalTaxes = duty + vat + extra + env;
-  const landed = invoice + totalTaxes;
-
-  // Kept as three visually separate pieces on purpose, not one blended table: the invoice
-  // value is money already paid to the supplier for the goods themselves; the customs charges
-  // are what's owed to customs on top of that; and the landed cost is only useful as a final
-  // planning number once those two are clearly told apart, not merged into a single figure.
-  const cell = usd => `${calcFmtUSD(usd)}${rate ? `<br><span class="hint" style="margin:0">${calcFmtLBP(usd*rate)}</span>` : ""}`;
-
-  const invoiceBlock = `
-    <table class="calc-table calc-table-invoice">
-      <tr><td>Invoice value (cost of goods)</td><td>${cell(invoice)}</td></tr>
-    </table>`;
-
-  const dutyRows = [[`Duty (${dutyPct}%)`, duty], [`VAT (${vatPct}%)`, vat]];
-  if(row.extraTax) dutyRows.push([`Extra tax (${extraPct}%)`, extra]);
-  if(row.envTax) dutyRows.push([`Environmental tax (${envPct}%)`, env]);
-  const dutyRowsHtml = dutyRows.map(([label, usd]) => `
-    <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
-  const customsBlock = `
-    <div class="calc-block-label">Amount to pay at customs</div>
-    <table class="calc-table">
-      ${dutyRowsHtml}
-      <tr class="calc-total"><td>Total customs charges</td><td>${cell(totalTaxes)}</td></tr>
-    </table>`;
-
-  const landedBlock = `
-    <div class="calc-landed-total">
-      <div class="calc-landed-label">Total landed cost (goods + customs charges)</div>
-      <div class="calc-landed-amount">${calcFmtUSD(landed)}</div>
-      ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(landed*rate)}</div>` : ""}
-    </div>`;
-
-  const minVal = parseMinValue(row.notes);
-  const minValWarning = minVal ? `
-    <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. If your declared value per unit is below this, customs may apply the minimum instead of the invoice value — check your shipment's actual quantity/weight against it before filing.</div>` : "";
-
-  resultsBox.innerHTML = invoiceBlock + customsBlock + landedBlock + minValWarning;
+  resultsBox.innerHTML = shipmentTotalHtml + itemBlocks.join("");
 }
 
 function openCalculatorForCode(code){
-  calcSelectedCode = code;
+  calcItems = [1];
+  calcNextItemId = 2;
+  for(const k of Object.keys(calcItemCode)) delete calcItemCode[k];
+  for(const k of Object.keys(calcItemInvoice)) delete calcItemInvoice[k];
+  calcItemCode[1] = code;
   switchTab("calculator");
-  renderCalcCodeSummary();
+  renderCalcItems();
   calcComputeAndRender();
-  const inp = document.getElementById("calcInvoiceValue");
+  const inp = document.querySelector('.calc-item-invoice-input[data-item-id="1"]');
   if(inp) inp.focus();
 }
 
-const calcCodeInputEl = document.getElementById("calcCodeInput");
-if(calcCodeInputEl){
-  calcCodeInputEl.addEventListener("input", e => {
-    const q = e.target.value.trim();
-    const box = document.getElementById("calcCodeSuggestions");
-    if(!q){ box.innerHTML = ""; return; }
-    const results = runSearch(q, []).slice(0, 8);
-    box.innerHTML = results.map(r => {
-      const desc = ((currentLang === "ar" ? r.ar : (r.en || r.ar)) || "").slice(0, 70);
-      return `<button type="button" class="calc-suggestion-item" data-code="${escapeHtml(r.code)}">${escapeHtml(r.code)} — ${escapeHtml(desc)}</button>`;
-    }).join("");
+const calcLineItemsEl = document.getElementById("calcLineItems");
+if(calcLineItemsEl){
+  calcLineItemsEl.addEventListener("input", e => {
+    const codeInput = e.target.closest(".calc-item-code-input");
+    const invoiceInput = e.target.closest(".calc-item-invoice-input");
+    if(codeInput){
+      const id = codeInput.dataset.itemId;
+      const q = codeInput.value.trim();
+      const box = calcLineItemsEl.querySelector(`.calc-item-code-suggestions[data-item-id="${id}"]`);
+      if(!box) return;
+      if(!q){ box.innerHTML = ""; return; }
+      const results = runSearch(q, []).slice(0, 8);
+      box.innerHTML = results.map(r => {
+        const desc = ((currentLang === "ar" ? r.ar : (r.en || r.ar)) || "").slice(0, 70);
+        return `<button type="button" class="calc-suggestion-item" data-item-id="${id}" data-code="${escapeHtml(r.code)}">${escapeHtml(r.code)} — ${escapeHtml(desc)}</button>`;
+      }).join("");
+    } else if(invoiceInput){
+      calcItemInvoice[invoiceInput.dataset.itemId] = invoiceInput.value;
+      calcComputeAndRender();
+    }
+  });
+  calcLineItemsEl.addEventListener("click", e => {
+    const suggBtn = e.target.closest(".calc-suggestion-item");
+    const removeBtn = e.target.closest(".calc-item-remove");
+    if(suggBtn){
+      const id = suggBtn.dataset.itemId;
+      calcItemCode[id] = suggBtn.dataset.code;
+      renderCalcItems();
+      calcComputeAndRender();
+      const inp = calcLineItemsEl.querySelector(`.calc-item-invoice-input[data-item-id="${id}"]`);
+      if(inp) inp.focus();
+    } else if(removeBtn){
+      const id = removeBtn.dataset.itemId;
+      calcItems = calcItems.filter(i => String(i) !== String(id));
+      delete calcItemCode[id];
+      delete calcItemInvoice[id];
+      renderCalcItems();
+      calcComputeAndRender();
+    }
   });
 }
-const calcCodeSuggestionsEl = document.getElementById("calcCodeSuggestions");
-if(calcCodeSuggestionsEl){
-  calcCodeSuggestionsEl.addEventListener("click", e => {
-    const btn = e.target.closest("[data-code]");
-    if(!btn) return;
-    calcSelectedCode = btn.dataset.code;
-    document.getElementById("calcCodeInput").value = "";
-    calcCodeSuggestionsEl.innerHTML = "";
-    renderCalcCodeSummary();
+const calcAddItemBtnEl = document.getElementById("calcAddItemBtn");
+if(calcAddItemBtnEl){
+  calcAddItemBtnEl.addEventListener("click", () => {
+    calcItems.push(calcNextItemId);
+    calcNextItemId++;
+    renderCalcItems();
     calcComputeAndRender();
   });
 }
-const calcInvoiceValueEl = document.getElementById("calcInvoiceValue");
-if(calcInvoiceValueEl) calcInvoiceValueEl.addEventListener("input", calcComputeAndRender);
 const calcExchangeRateEl = document.getElementById("calcExchangeRate");
 if(calcExchangeRateEl){
   calcExchangeRateEl.addEventListener("input", () => {
@@ -8087,6 +8208,7 @@ if(calcExchangeRateEl){
   const savedRate = Store.get(CALC_RATE_KEY, null);
   calcExchangeRateEl.value = savedRate || CALC_DEFAULT_RATE;
 }
+renderCalcItems();
 
 /* Tabs */
 function switchTab(tab){
@@ -8096,7 +8218,7 @@ function switchTab(tab){
   });
   if(tab === "favorites") renderFavorites();
   if(tab === "history") renderHistory();
-  if(tab === "calculator"){ renderCalcCodeSummary(); calcComputeAndRender(); }
+  if(tab === "calculator"){ calcComputeAndRender(); }
 }
 document.getElementById("tabs").addEventListener("click", e => {
   const btn = e.target.closest("button[data-tab]");
