@@ -15,15 +15,13 @@ and `source/build_pwa.py` in this repo.
    code + invoice value line items with add/remove, per-item breakdown, and a combined
    shipment total. Single-item use looks identical to the original one-code calculator.
 
-2. **Auto-apply statutory minimum customs value** — PENDING (next up).
-   Add a quantity field (+ unit selector matching parseMinValue's parsed unit: liter/kg/
-   dozen/piece/pair/etc.) to each calculator line item. Compute declared unit price =
-   invoice value ÷ quantity. Compare against the statutory minimum from parseMinValue
-   (row.notes). If declared price < minimum, automatically use quantity × minimum
-   (converted to USD via the entered exchange rate) as the customs value for duty/VAT/
-   extraTax/envTax instead of the invoice value, with a clear on-screen label showing
-   which value was used and why. If quantity isn't entered, fall back to today's
-   behavior (just the existing warning banner, invoice value used as-is).
+2. **Auto-apply statutory minimum customs value** — DONE (2026-08-21). Calculator line
+   items that have a parsed statutory minimum now show a quantity field. When entered,
+   declared value (invoice) is compared against quantity × minimum (converted via the
+   exchange rate); if declared is lower, customs charges are computed on the minimum
+   instead, with a clear on-screen note explaining which value was used and why. Invoice
+   value itself is never altered — only the customs-charges base. No quantity entered
+   falls back to the original warning-only behavior.
 
 3. **Data-freshness indicator + changelog** — PENDING.
    Show a small "tariff data as of [date]" note (and ideally a simple in-app changelog of
