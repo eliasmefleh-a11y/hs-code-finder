@@ -604,6 +604,19 @@
     color:var(--warn);
     font-size:0.85rem;
   }
+  .calc-minval-warning.calc-minval-applied,
+  .calc-minval-warning.calc-minval-ok{
+    background:rgba(51,209,122,0.1);
+    border-color:rgba(51,209,122,0.4);
+    color:#33d17a;
+  }
+  .calc-dutybase-note{
+    padding:4px 6px !important;
+    border-bottom:none !important;
+    font-size:0.78rem;
+    color:var(--muted);
+    font-style:italic;
+  }
   .calc-item{
     padding:14px;
     margin-bottom:12px;
@@ -757,7 +770,7 @@
     </div>
     <div id="calcResults"></div>
     <div class="hint" style="margin-top:14px;">
-      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the invoice value, per how Lebanese customs charges these in practice. This does not check the statutory minimum customs value against your actual shipment quantity, doesn't account for exemptions or trade-agreement preferential rates, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
+      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the higher of your invoice value or the official statutory minimum customs value (when a quantity is entered for a code that has one on file). This doesn't account for exemptions or trade-agreement preferential rates, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
     </div>
   </section>
 
@@ -7920,6 +7933,7 @@ let calcItems = [1];
 let calcNextItemId = 2;
 const calcItemCode = {};
 const calcItemInvoice = {};
+const calcItemQuantity = {}; // shipment quantity, in the unit the statutory minimum is quoted in — only asked for when the selected code actually has a parsed minimum on file
 
 function calcFmtUSD(n){
   return "$" + n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -7940,6 +7954,14 @@ function renderCalcItems(){
       ? `<b>${escapeHtml(row.code)}</b> — ${escapeHtml((currentLang === "ar" ? row.ar : (row.en || row.ar)) || "")}`
       : (code ? "Code not found." : "No HS code selected yet — search above, or tap 🧮 on any search result.");
     const invoiceVal = calcItemInvoice[id] || "";
+    const minVal = row ? parseMinValue(row.notes) : null;
+    const qtyVal = calcItemQuantity[id] || "";
+    const quantityBlock = minVal ? `
+      <div class="calc-section">
+        <label class="calc-label">Quantity (${escapeHtml(minVal.unit)})</label>
+        <input type="number" class="calc-input calc-item-quantity-input" data-item-id="${id}" placeholder="e.g. 10" min="0" step="0.01" value="${escapeHtml(qtyVal)}">
+        <div class="hint">This code has an official statutory minimum customs value of ${escapeHtml(minVal.amount)} LL per ${escapeHtml(minVal.unit)}. Enter the shipment quantity to auto-check your declared value against it.</div>
+      </div>` : "";
     return `
     <div class="calc-item">
       ${multi ? `<div class="calc-item-header"><span class="calc-item-label">Item ${idx+1}</span><button type="button" class="calc-item-remove" data-item-id="${id}">✕ Remove</button></div>` : ""}
@@ -7953,6 +7975,7 @@ function renderCalcItems(){
         <label class="calc-label">Invoice value (USD)</label>
         <input type="number" class="calc-input calc-item-invoice-input" data-item-id="${id}" placeholder="e.g. 50000" min="0" step="0.01" value="${escapeHtml(invoiceVal)}">
       </div>
+      ${quantityBlock}
     </div>`;
   }).join("");
 }
@@ -7985,10 +8008,28 @@ function calcComputeAndRender(){
     const vatPct = parseFloat(row.vat) || 0;
     const extraPct = parseFloat(row.extraTax) || 0;
     const envPct = parseFloat(row.envTax) || 0;
-    const duty = invoice * dutyPct / 100;
-    const vat = invoice * vatPct / 100;
-    const extra = invoice * extraPct / 100;
-    const env = invoice * envPct / 100;
+
+    // Lebanese customs assesses duty/VAT/etc on the HIGHER of the declared invoice value or the
+    // official statutory minimum customs value for that code (when one is on file) — so if the
+    // shipment quantity is known, check the declared value against quantity × minimum and use
+    // whichever is larger as the base the percentages apply to. The invoice value itself (what
+    // was actually paid to the supplier) is never altered — only the customs-charges base is.
+    const minVal = parseMinValue(row.notes);
+    let minValueUSD = null;
+    let qty = null;
+    if(minVal){
+      qty = parseFloat(calcItemQuantity[id]);
+      if(calcItemQuantity[id] && !isNaN(qty) && qty > 0 && rate > 0){
+        minValueUSD = (parseFloat(minVal.amount) * qty) / rate;
+      }
+    }
+    const minApplied = minValueUSD !== null && minValueUSD > invoice;
+    const dutyBase = minApplied ? minValueUSD : invoice;
+
+    const duty = dutyBase * dutyPct / 100;
+    const vat = dutyBase * vatPct / 100;
+    const extra = dutyBase * extraPct / 100;
+    const env = dutyBase * envPct / 100;
     const totalTaxes = duty + vat + extra + env;
     const landed = invoice + totalTaxes;
 
@@ -8000,10 +8041,23 @@ function calcComputeAndRender(){
     if(row.envTax) dutyRows.push([`Environmental tax (${envPct}%)`, env]);
     const dutyRowsHtml = dutyRows.map(([label, usd]) => `
       <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
+    const dutyBaseNote = minApplied ? `
+      <tr><td class="calc-dutybase-note" colspan="2">Based on the statutory minimum value (${calcFmtUSD(minValueUSD)}), not the invoice value — see note below.</td></tr>` : "";
 
-    const minVal = parseMinValue(row.notes);
-    const minValWarning = minVal ? `
-      <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. If your declared value per unit is below this, customs may apply the minimum instead of the invoice value — check your shipment's actual quantity/weight against it before filing.</div>` : "";
+    let minValNote = "";
+    if(minVal && !qty){
+      minValNote = `
+      <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. Enter the shipment quantity above to auto-check your declared value against it — otherwise customs may apply the minimum instead of the invoice value at filing.</div>`;
+    } else if(minVal && qty && rate <= 0){
+      minValNote = `
+      <div class="calc-minval-warning">⚠️ Statutory minimum on file (<b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>) but it can't be checked without an exchange rate — enter one below.</div>`;
+    } else if(minApplied){
+      minValNote = `
+      <div class="calc-minval-warning calc-minval-applied">✅ Statutory minimum applied: customs charges above are based on ${calcFmtUSD(minValueUSD)} (${escapeHtml(minVal.amount)} LL/${escapeHtml(minVal.unit)} × ${qty}), not your declared invoice value of ${calcFmtUSD(invoice)}, because the declared value was below the official minimum.</div>`;
+    } else if(minVal && qty){
+      minValNote = `
+      <div class="calc-minval-warning calc-minval-ok">✔️ Declared value meets the statutory minimum (${escapeHtml(minVal.amount)} LL/${escapeHtml(minVal.unit)} × ${qty}) — customs charges are based on your invoice value as declared.</div>`;
+    }
 
     const desc = (currentLang === "ar" ? row.ar : (row.en || row.ar)) || "";
     itemBlocks.push(`
@@ -8014,6 +8068,7 @@ function calcComputeAndRender(){
         </table>
         <div class="calc-block-label">Amount to pay at customs</div>
         <table class="calc-table">
+          ${dutyBaseNote}
           ${dutyRowsHtml}
           <tr class="calc-total"><td>Total customs charges</td><td>${cell(totalTaxes)}</td></tr>
         </table>
@@ -8022,7 +8077,7 @@ function calcComputeAndRender(){
           <div class="calc-landed-amount">${calcFmtUSD(landed)}</div>
           ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(landed*rate)}</div>` : ""}
         </div>
-        ${minValWarning}
+        ${minValNote}
       </div>`);
   });
 
@@ -8064,6 +8119,7 @@ function openCalculatorForCode(code){
   calcNextItemId = 2;
   for(const k of Object.keys(calcItemCode)) delete calcItemCode[k];
   for(const k of Object.keys(calcItemInvoice)) delete calcItemInvoice[k];
+  for(const k of Object.keys(calcItemQuantity)) delete calcItemQuantity[k];
   calcItemCode[1] = code;
   switchTab("calculator");
   renderCalcItems();
@@ -8077,6 +8133,7 @@ if(calcLineItemsEl){
   calcLineItemsEl.addEventListener("input", e => {
     const codeInput = e.target.closest(".calc-item-code-input");
     const invoiceInput = e.target.closest(".calc-item-invoice-input");
+    const quantityInput = e.target.closest(".calc-item-quantity-input");
     if(codeInput){
       const id = codeInput.dataset.itemId;
       const q = codeInput.value.trim();
@@ -8091,6 +8148,9 @@ if(calcLineItemsEl){
     } else if(invoiceInput){
       calcItemInvoice[invoiceInput.dataset.itemId] = invoiceInput.value;
       calcComputeAndRender();
+    } else if(quantityInput){
+      calcItemQuantity[quantityInput.dataset.itemId] = quantityInput.value;
+      calcComputeAndRender();
     }
   });
   calcLineItemsEl.addEventListener("click", e => {
@@ -8099,6 +8159,7 @@ if(calcLineItemsEl){
     if(suggBtn){
       const id = suggBtn.dataset.itemId;
       calcItemCode[id] = suggBtn.dataset.code;
+      delete calcItemQuantity[id]; // a new code may have a different (or no) statutory-minimum unit, so any old quantity no longer applies
       renderCalcItems();
       calcComputeAndRender();
       const inp = calcLineItemsEl.querySelector(`.calc-item-invoice-input[data-item-id="${id}"]`);
@@ -8108,6 +8169,7 @@ if(calcLineItemsEl){
       calcItems = calcItems.filter(i => String(i) !== String(id));
       delete calcItemCode[id];
       delete calcItemInvoice[id];
+      delete calcItemQuantity[id];
       renderCalcItems();
       calcComputeAndRender();
     }
