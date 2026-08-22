@@ -579,6 +579,11 @@
     color:var(--warn);
     border-color:rgba(245,166,35,0.5);
   }
+  .calc-ask-ai-btn{
+    display:inline-block;
+    margin-top:6px;
+    font-size:0.8rem;
+  }
   .empty-state{
     text-align:center;
     padding:40px 10px;
@@ -8009,11 +8014,44 @@ function renderCard(row){
       <button class="icon-btn" data-action="copy" data-code="${row.code}" title="Copy code">⧉</button>
       <button class="icon-btn" data-action="teach" data-code="${row.code}" title="Teach a word for this code">🎓</button>
       <button class="icon-btn" data-action="calc" data-code="${row.code}" title="Calculate duty &amp; taxes for this code">🧮</button>
+      <button class="icon-btn" data-action="ai" data-code="${row.code}" title="Ask AI about this classification (opens Claude in a new tab, and copies the question too)">🤖</button>
     </div>
   </div>`;
 }
 function escapeHtml(s){
   return String(s??"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* "Ask AI" shortcut: the app is fully offline/dependency-free by design (no bundled API key, no
+   backend), so this doesn't call an AI API directly. Instead it builds a plain-language question
+   from the code's own data (description, duty/VAT/tax rates, permit flag if any) and opens it in
+   Claude via the `claude.ai/new?q=...` deep link, which pre-fills the message box for review
+   before sending. That link is an observed, unofficial behavior (not a documented Anthropic API)
+   and could stop working without notice, so the question is also copied to the clipboard as a
+   fallback the user can paste anywhere if the prefill ever breaks. Requires the user to already
+   be signed in to claude.ai in that browser tab; nothing here sends data anywhere on its own. */
+function buildAskAIPrompt(row){
+  if(!row) return "";
+  const desc = ((currentLang === "ar" ? row.ar : (row.en || row.ar)) || "").trim();
+  const parts = [];
+  parts.push(`I'm a customs clearing agent in Lebanon working with HS code ${row.code}${desc ? ` (${desc})` : ""}.`);
+  const taxBits = [];
+  if(row.duty !== "" && row.duty !== undefined) taxBits.push(`duty ${row.duty}%`);
+  if(row.vat !== "" && row.vat !== undefined) taxBits.push(`VAT ${row.vat}%`);
+  if(row.extraTax) taxBits.push(`extra tax ${row.extraTax}%`);
+  if(row.envTax) taxBits.push(`environmental tax ${row.envTax}%`);
+  if(taxBits.length) parts.push(`My tariff book lists: ${taxBits.join(", ")}.`);
+  const permitInfo = getPermitInfo(row.code);
+  if(permitInfo) parts.push(`It may also require prior approval from ${permitInfo.ministry}.`);
+  parts.push("Can you double-check this classification looks right for that description, flag if it's commonly misclassified as something else, and note anything else worth verifying before I file it?");
+  return parts.join(" ");
+}
+function openAskAI(code){
+  const row = findByCode(code);
+  const prompt = buildAskAIPrompt(row);
+  if(!prompt) return;
+  navigator.clipboard?.writeText(prompt).catch(()=>{});
+  window.open("https://claude.ai/new?q=" + encodeURIComponent(prompt), "_blank", "noopener");
 }
 
 /* A plain a-z query (no Arabizi-marker digits) that already has a confident, direct English
@@ -8174,6 +8212,7 @@ document.getElementById("resultsList").addEventListener("click", e => {
   const copyBtn = e.target.closest('[data-action="copy"]');
   const teachBtn = e.target.closest('[data-action="teach"]');
   const calcBtn = e.target.closest('[data-action="calc"]');
+  const aiBtn = e.target.closest('[data-action="ai"]');
   const codeEl = e.target.closest(".code");
   if(favBtn){
     toggleFavorite(favBtn.dataset.code);
@@ -8185,6 +8224,9 @@ document.getElementById("resultsList").addEventListener("click", e => {
     openTeachModal(teachBtn.dataset.code);
   } else if(calcBtn){
     openCalculatorForCode(calcBtn.dataset.code);
+  } else if(aiBtn){
+    openAskAI(aiBtn.dataset.code);
+    flashStatus(aiBtn, "Opened + copied");
   } else if(codeEl){
     navigator.clipboard?.writeText(codeEl.textContent.trim()).catch(()=>{});
     flashStatus(codeEl, "Copied");
@@ -8195,10 +8237,12 @@ document.getElementById("favoritesList").addEventListener("click", e => {
   const copyBtn = e.target.closest('[data-action="copy"]');
   const teachBtn = e.target.closest('[data-action="teach"]');
   const calcBtn = e.target.closest('[data-action="calc"]');
+  const aiBtn = e.target.closest('[data-action="ai"]');
   if(favBtn){ toggleFavorite(favBtn.dataset.code); renderFavorites(); }
   else if(copyBtn){ navigator.clipboard?.writeText(copyBtn.dataset.code).catch(()=>{}); }
   else if(teachBtn){ openTeachModal(teachBtn.dataset.code); }
   else if(calcBtn){ openCalculatorForCode(calcBtn.dataset.code); }
+  else if(aiBtn){ openAskAI(aiBtn.dataset.code); flashStatus(aiBtn, "Opened + copied"); }
 });
 document.getElementById("clearFavsBtn").addEventListener("click", () => {
   setFavorites([]); renderFavorites();
@@ -8378,7 +8422,8 @@ function renderCalcItems(){
     const row = code ? findByCode(code) : null;
     const summaryClass = (code && row) ? "calc-code-summary" : "calc-code-summary empty";
     const summaryHtml = (code && row)
-      ? `<b>${escapeHtml(row.code)}</b> — ${escapeHtml((currentLang === "ar" ? row.ar : (row.en || row.ar)) || "")}`
+      ? `<b>${escapeHtml(row.code)}</b> — ${escapeHtml((currentLang === "ar" ? row.ar : (row.en || row.ar)) || "")}` +
+        `<button type="button" class="link-btn calc-ask-ai-btn" data-action="ai" data-code="${escapeHtml(row.code)}" title="Ask AI about this classification (opens Claude in a new tab, and copies the question too)">🤖 Ask AI</button>`
       : (code ? "Code not found." : "No HS code selected yet — search above, or tap 🧮 on any search result.");
     const invoiceVal = calcItemInvoice[id] || "";
     const minVal = row ? parseMinValue(row.notes) : null;
@@ -8765,7 +8810,11 @@ if(calcLineItemsEl){
   calcLineItemsEl.addEventListener("click", e => {
     const suggBtn = e.target.closest(".calc-suggestion-item");
     const removeBtn = e.target.closest(".calc-item-remove");
-    if(suggBtn){
+    const aiBtn = e.target.closest('[data-action="ai"]');
+    if(aiBtn){
+      openAskAI(aiBtn.dataset.code);
+      flashStatus(aiBtn, "Opened + copied");
+    } else if(suggBtn){
       const id = suggBtn.dataset.itemId;
       calcItemCode[id] = suggBtn.dataset.code;
       delete calcItemQuantity[id]; // a new code may have a different (or no) statutory-minimum unit, so any old quantity no longer applies
