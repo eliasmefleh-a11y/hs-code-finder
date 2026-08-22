@@ -186,6 +186,7 @@
     display:flex;
     align-items:center;
     justify-content:space-between;
+    flex-wrap:wrap;
     gap:10px;
     background:var(--panel2);
     border:1px solid var(--border);
@@ -204,6 +205,35 @@
     cursor:pointer;
     text-decoration:underline;
     padding:2px 4px;
+  }
+  .disclaimer-simple-actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex:0 0 auto;
+    white-space:nowrap;
+  }
+  .data-freshness-badge{
+    font-size:0.76rem;
+    color:var(--muted);
+    white-space:nowrap;
+  }
+  .changelog-entry{
+    padding:10px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .changelog-entry:last-child{ border-bottom:none; }
+  .changelog-date{
+    font-size:0.76rem;
+    font-weight:700;
+    color:var(--accent-ink);
+    margin-bottom:3px;
+  }
+  .changelog-text{ font-size:0.88rem; color:var(--text); line-height:1.4; }
+  .changelog-list{
+    max-height:50vh;
+    overflow-y:auto;
+    margin:10px 0 14px;
   }
   main{
     max-width:920px;
@@ -804,7 +834,11 @@
 
 <div class="disclaimer-simple" id="disclaimerSimple">
   <span>ℹ️ Codes and rates are from Lebanon's official customs tariff book — always double-check anything important against the original document.</span>
-  <button type="button" id="disclaimerToggle">Details</button>
+  <div class="disclaimer-simple-actions">
+    <span class="data-freshness-badge" id="dataFreshnessBadge" title="Most recent change to this app's data or features"></span>
+    <button type="button" id="changelogBtn">What's new</button>
+    <button type="button" id="disclaimerToggle">Details</button>
+  </div>
 </div>
 <div class="disclaimer" id="disclaimerBox" style="display:none;">
   ⚠️ Built-in data (5,379 codes) is <b>extracted from the official Lebanese Customs tariff book</b> ("تعريفة الرسوم الجمركية وفقاً للنظام المنسق", Majlis al-A'la lil-Jamarik, 2012 4th amendment), with updates applied throughout: <b>VAT shown as 11%</b> (the book's legacy 10% rate, updated per current rate — a further rise to 12% has been proposed but was not yet confirmed in effect), a flat <b>+3% tax</b> on every code that carries VAT (not limited to any particular chapters) — VAT-exempt codes never carry the +3% — and a new <b>Environmental Tax (الضريبة البيئية)</b> per Law No. 38 (effective 5 January 2026, amended 20 August 2026), shown as its own chip ranging from <b>0.1% up to 3%</b> of customs value depending on HS chapter/heading per the current official rate table; unlike the +3% tax, it applies regardless of VAT/duty status and is collected by Customs the same way as duty. Automated text-extraction from a 640-page PDF can still contain occasional errors, especially in the hierarchical description context — the <b>duty/VAT % and the "Tariff book p.N" reference on each result are the most reliable fields; use the page number to cross-check the original PDF before filing anything consequential.</b> Go to the <b>Import Data</b> tab to load an updated official file if you have one.
@@ -904,6 +938,17 @@
     <div class="modal-actions">
       <button class="btn secondary" id="teachCancelBtn">Cancel</button>
       <button class="btn" id="teachSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="changelogModal" style="display:none;">
+  <div class="modal-box">
+    <h3>What's new</h3>
+    <p class="hint">A running log of data and feature changes in this app, so you can see at a glance what's changed and when.</p>
+    <div class="changelog-list" id="changelogList"></div>
+    <div class="modal-actions">
+      <button class="btn" id="changelogCloseBtn">Close</button>
     </div>
   </div>
 </div>
@@ -7982,6 +8027,51 @@ document.getElementById("teachSaveBtn").addEventListener("click", () => {
 document.getElementById("teachWordInput").addEventListener("keydown", e => {
   if(e.key === "Enter") document.getElementById("teachSaveBtn").click();
 });
+
+/* Data-freshness badge + changelog modal */
+const CHANGELOG = [
+  { date: "2026-08-22", text: "Added this \"What's new\" changelog and a data-freshness badge, so you can see at a glance when the app's data or features last changed." },
+  { date: "2026-08-21", text: "Calculator now auto-applies the official statutory minimum customs value (when one is on file) if it's higher than your declared invoice value, with a clear on-screen note explaining which value was used." },
+  { date: "2026-08-21", text: "Calculator now supports multiple items in one shipment — add/remove line items and see a combined shipment total, alongside the per-item breakdown." },
+  { date: "2026-08-20", text: "Landed cost and total customs charges are now shown as separate figures in the calculator, instead of blended into one number." },
+  { date: "2026-08-20", text: "Added a duty/tax landed-cost calculator with statutory-minimum-value badges on relevant codes." },
+  { date: "2026-08-20", text: "Major search performance fix, and the app now checks for and applies its own updates automatically." },
+  { date: "2026-08-20", text: "Environmental tax rates updated: now applies to 26 chapters, up to 3%, per the latest amendment." },
+  { date: "2026-01-05", text: "Environmental tax introduced into the tariff data." },
+];
+function formatChangelogDate(iso){
+  const d = new Date(iso + "T00:00:00Z");
+  if(isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+}
+function renderDataFreshnessBadge(){
+  const el = document.getElementById("dataFreshnessBadge");
+  if(!el || !CHANGELOG.length) return;
+  el.textContent = "Updated " + formatChangelogDate(CHANGELOG[0].date);
+}
+function renderChangelogList(){
+  const el = document.getElementById("changelogList");
+  if(!el) return;
+  el.innerHTML = CHANGELOG.map(entry => `
+    <div class="changelog-entry">
+      <div class="changelog-date">${escapeHtml(formatChangelogDate(entry.date))}</div>
+      <div class="changelog-text">${escapeHtml(entry.text)}</div>
+    </div>`).join("");
+}
+function openChangelogModal(){
+  renderChangelogList();
+  document.getElementById("changelogModal").style.display = "flex";
+}
+function closeChangelogModal(){
+  document.getElementById("changelogModal").style.display = "none";
+}
+document.getElementById("changelogBtn").addEventListener("click", openChangelogModal);
+document.getElementById("changelogCloseBtn").addEventListener("click", closeChangelogModal);
+document.getElementById("changelogModal").addEventListener("click", e => {
+  if(e.target.id === "changelogModal") closeChangelogModal();
+});
+renderDataFreshnessBadge();
+
 document.getElementById("disclaimerToggle").addEventListener("click", () => {
   const box = document.getElementById("disclaimerBox");
   const open = box.style.display !== "none";
