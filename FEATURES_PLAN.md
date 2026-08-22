@@ -71,6 +71,17 @@ carry the same build/test/deploy discipline forward.
    per item, to avoid double-counting). Not persisted between sessions (unlike the exchange
    rate) since these are shipment-specific, not a stable default.
 
+8. **Manual shipping-rate comparator** — DONE (2026-08-22). User asked for the app to "get the
+   best prices from shipping companies" — no carrier (Maersk, DHL, local Lebanese forwarders,
+   etc.) exposes a free public API for live quotes, so this ships as a manual comparator
+   instead of a fabricated live-pricing feature: a "🚢 Compare shipping rates" button on the
+   calculator opens a modal where the user enters the quotes they've already collected
+   (carrier name, mode — sea/air/land-cross-border/courier, price USD, transit days, notes).
+   Entries are ranked cheapest-first with a "💰 Cheapest" badge, and a "Use this rate" button
+   applies the chosen price directly to the Shipping field so it flows into the landed-cost
+   total. Entries are in-memory only (not persisted to Store, and reset whenever a new
+   calculation starts via openCalculatorForCode) since quotes are shipment-specific.
+
 ## Conventions established (follow these exactly)
 
 - **Single source of truth**: `hs_code_finder.html` (the master file). Never edit
