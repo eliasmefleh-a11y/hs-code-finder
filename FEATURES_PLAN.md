@@ -23,10 +23,11 @@ and `source/build_pwa.py` in this repo.
    value itself is never altered — only the customs-charges base. No quantity entered
    falls back to the original warning-only behavior.
 
-3. **Data-freshness indicator + changelog** — PENDING.
-   Show a small "tariff data as of [date]" note (and ideally a simple in-app changelog of
-   what changed and when — e.g. the environmental tax amendment, this feature list) so the
-   user can trust/verify the numbers at a glance.
+3. **Data-freshness indicator + changelog** — DONE (2026-08-22). Added a "Updated [date]"
+   badge next to the disclaimer bar and a "What's new" button opening an in-app changelog
+   modal listing dated entries (env tax introduction, the 20/21 Aug feature releases, and
+   this feature itself). Badge date is derived automatically from the newest changelog
+   entry.
 
 4. **Shareable quote / PDF export** — PENDING.
    Button on the calculator to export the current breakdown (single or multi-item) as a
