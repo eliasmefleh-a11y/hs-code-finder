@@ -762,6 +762,47 @@
     border:2px solid rgba(51,209,122,0.4);
     background:rgba(51,209,122,0.08);
   }
+  .calc-export-btn{ margin-top:10px; }
+  .calc-export-msg{ margin-top:8px; }
+  #calcPrintArea{
+    position:absolute;
+    left:-9999px;
+    top:0;
+    width:800px;
+    background:#fff;
+    color:#111;
+    padding:24px;
+    font-family:Arial, Helvetica, sans-serif;
+  }
+  #calcPrintArea .print-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    border-bottom:2px solid #111;
+    padding-bottom:10px;
+    margin-bottom:14px;
+  }
+  #calcPrintArea .print-header h2{ margin:0; font-size:1.3rem; }
+  #calcPrintArea .print-date{ font-size:0.85rem; color:#444; }
+  #calcPrintArea .print-item{ margin-bottom:18px; page-break-inside:avoid; }
+  #calcPrintArea .print-item-title{ font-weight:700; font-size:0.95rem; margin-bottom:6px; }
+  #calcPrintArea table.print-table{ width:100%; border-collapse:collapse; font-size:0.85rem; margin-bottom:8px; }
+  #calcPrintArea table.print-table td{ padding:4px 6px; border-bottom:1px solid #ddd; }
+  #calcPrintArea table.print-table td:last-child{ text-align:right; }
+  #calcPrintArea .print-total-row td{ font-weight:700; border-top:1px solid #111; border-bottom:none; }
+  #calcPrintArea .print-landed{ text-align:right; font-size:1.05rem; font-weight:700; margin:6px 0 4px; }
+  #calcPrintArea .print-note{ font-size:0.78rem; color:#555; margin-bottom:6px; }
+  #calcPrintArea .print-disclaimer{ font-size:0.72rem; color:#555; margin-top:16px; border-top:1px solid #ccc; padding-top:8px; }
+  @media print{
+    body *:not(#calcPrintArea):not(#calcPrintArea *){ visibility:hidden !important; }
+    #calcPrintArea{
+      visibility:visible !important;
+      position:absolute;
+      left:0;
+      top:0;
+      width:100%;
+    }
+  }
   table.map-table{
     width:100%;
     border-collapse:collapse;
@@ -880,6 +921,8 @@
       <div class="hint">Lebanon's exchange rate moves — this is an editable estimate, not a live feed. Check today's official/customs rate and update it here if it's changed. This one rate applies to every item below.</div>
     </div>
     <div id="calcResults"></div>
+    <button type="button" class="btn secondary calc-export-btn" id="calcExportBtn" style="display:none;">🖨️ Export / print quote</button>
+    <div class="hint calc-export-msg" id="calcExportMsg" style="display:none;"></div>
     <div class="hint" style="margin-top:14px;">
       Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the higher of your invoice value or the official statutory minimum customs value (when a quantity is entered for a code that has one on file). This doesn't account for exemptions or trade-agreement preferential rates, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
     </div>
@@ -956,6 +999,15 @@
 <footer>
   Data stored only in this browser (or in this Cowork session while open). Not affiliated with Lebanese Customs. Verify all classifications independently — misclassification can carry duty and legal consequences.
 </footer>
+
+<div id="calcPrintArea">
+  <div class="print-header">
+    <h2>Landed Cost Estimate</h2>
+    <div class="print-date" id="calcPrintDate"></div>
+  </div>
+  <div id="calcPrintBody"></div>
+  <div class="print-disclaimer">Estimate only — not an official customs declaration. Duty, VAT, extra tax and environmental tax are applied as a flat percentage of the higher of the invoice value or the official statutory minimum customs value (when applicable). Does not include shipping, insurance, broker fees, exemptions, or trade-agreement preferential rates. Confirm against the current tariff book and customs valuation rules before filing.</div>
+</div>
 
 <script>
 /* SheetJS (xlsx) 0.18.5 — bundled inline so the app works fully offline */
@@ -8101,6 +8153,7 @@ let calcNextItemId = 2;
 const calcItemCode = {};
 const calcItemInvoice = {};
 const calcItemQuantity = {}; // shipment quantity, in the unit the statutory minimum is quoted in — only asked for when the selected code actually has a parsed minimum on file
+let calcLastSnapshot = null; // most recent computed breakdown, captured by calcComputeAndRender for the print/export quote
 
 function calcFmtUSD(n){
   return "$" + n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -8159,6 +8212,7 @@ function calcComputeAndRender(){
   const multi = calcItems.length > 1;
 
   const itemBlocks = [];
+  const snapshotItems = [];
   let sumInvoice = 0, sumDuty = 0, sumVat = 0, sumExtra = 0, sumEnv = 0, sumTaxes = 0, sumLanded = 0;
   let validCount = 0;
 
@@ -8212,21 +8266,31 @@ function calcComputeAndRender(){
       <tr><td class="calc-dutybase-note" colspan="2">Based on the statutory minimum value (${calcFmtUSD(minValueUSD)}), not the invoice value — see note below.</td></tr>` : "";
 
     let minValNote = "";
+    let minValNoteText = "";
     if(minVal && !qty){
       minValNote = `
       <div class="calc-minval-warning">⚠️ This code has an official statutory minimum customs value on file: <b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>. Enter the shipment quantity above to auto-check your declared value against it — otherwise customs may apply the minimum instead of the invoice value at filing.</div>`;
+      minValNoteText = `Statutory minimum on file: ${minVal.amount} LL / ${minVal.unit}. Quantity not entered — customs may apply the minimum instead of the invoice value at filing.`;
     } else if(minVal && qty && rate <= 0){
       minValNote = `
       <div class="calc-minval-warning">⚠️ Statutory minimum on file (<b>${escapeHtml(minVal.amount)} LL / ${escapeHtml(minVal.unit)}</b>) but it can't be checked without an exchange rate — enter one below.</div>`;
+      minValNoteText = `Statutory minimum on file (${minVal.amount} LL / ${minVal.unit}) but it couldn't be checked without an exchange rate.`;
     } else if(minApplied){
       minValNote = `
       <div class="calc-minval-warning calc-minval-applied">✅ Statutory minimum applied: customs charges above are based on ${calcFmtUSD(minValueUSD)} (${escapeHtml(minVal.amount)} LL/${escapeHtml(minVal.unit)} × ${qty}), not your declared invoice value of ${calcFmtUSD(invoice)}, because the declared value was below the official minimum.</div>`;
+      minValNoteText = `Statutory minimum applied: customs charges based on ${calcFmtUSD(minValueUSD)} (${minVal.amount} LL/${minVal.unit} × ${qty}), not the declared invoice value of ${calcFmtUSD(invoice)}.`;
     } else if(minVal && qty){
       minValNote = `
       <div class="calc-minval-warning calc-minval-ok">✔️ Declared value meets the statutory minimum (${escapeHtml(minVal.amount)} LL/${escapeHtml(minVal.unit)} × ${qty}) — customs charges are based on your invoice value as declared.</div>`;
+      minValNoteText = `Declared value meets the statutory minimum (${minVal.amount} LL/${minVal.unit} × ${qty}) — customs charges are based on the invoice value as declared.`;
     }
 
     const desc = (currentLang === "ar" ? row.ar : (row.en || row.ar)) || "";
+    snapshotItems.push({
+      code: row.code, desc, invoice, dutyRows, totalTaxes, landed, minValNoteText,
+      dutyBaseNote: minApplied ? `Based on the statutory minimum value (${calcFmtUSD(minValueUSD)}), not the invoice value.` : "",
+    });
+
     itemBlocks.push(`
       <div class="calc-item-result">
         ${multi ? `<div class="calc-item-result-title">Item ${idx+1}: <b>${escapeHtml(row.code)}</b> — ${escapeHtml(desc)}</div>` : ""}
@@ -8250,6 +8314,9 @@ function calcComputeAndRender(){
 
   if(validCount === 0){
     resultsBox.innerHTML = `<div class="hint">Select an HS code and enter an invoice value for at least one item to see the breakdown.</div>`;
+    calcLastSnapshot = null;
+    const exportBtn = document.getElementById("calcExportBtn");
+    if(exportBtn) exportBtn.style.display = "none";
     return;
   }
 
@@ -8279,7 +8346,67 @@ function calcComputeAndRender(){
   }
 
   resultsBox.innerHTML = shipmentTotalHtml + itemBlocks.join("");
+
+  calcLastSnapshot = {
+    rate, multi, validCount,
+    sumInvoice, sumDuty, sumVat, sumExtra, sumEnv, sumTaxes, sumLanded,
+    items: snapshotItems,
+  };
+  const exportBtn = document.getElementById("calcExportBtn");
+  if(exportBtn) exportBtn.style.display = "";
 }
+
+/* Export / print quote — builds a clean, printer-friendly summary of the last computed
+   breakdown into #calcPrintArea, then opens the browser's print dialog (from which the
+   user can "Save as PDF"). No PDF library is bundled — this keeps the app fully offline
+   and dependency-free, matching how every other feature here works without a CDN. */
+function renderPrintQuote(){
+  const snap = calcLastSnapshot;
+  if(!snap) return false;
+  document.getElementById("calcPrintDate").textContent = "Prepared " + new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  const cellText = usd => calcFmtUSD(usd) + (snap.rate ? " (" + calcFmtLBP(usd * snap.rate) + ")" : "");
+
+  const itemsHtml = snap.items.map((it, idx) => {
+    const dutyRowsHtml = it.dutyRows.map(([label, usd]) => `
+      <tr><td>${escapeHtml(label)}</td><td>${escapeHtml(cellText(usd))}</td></tr>`).join("");
+    return `
+    <div class="print-item">
+      <div class="print-item-title">${snap.multi ? `Item ${idx+1}: ` : ""}${escapeHtml(it.code)} — ${escapeHtml(it.desc)}</div>
+      <table class="print-table">
+        <tr><td>Invoice value (cost of goods)</td><td>${escapeHtml(cellText(it.invoice))}</td></tr>
+        ${it.dutyBaseNote ? `<tr><td colspan="2" class="print-note">${escapeHtml(it.dutyBaseNote)}</td></tr>` : ""}
+        ${dutyRowsHtml}
+        <tr class="print-total-row"><td>Total customs charges</td><td>${escapeHtml(cellText(it.totalTaxes))}</td></tr>
+      </table>
+      <div class="print-landed">${snap.multi ? "Landed cost — this item: " : "Total landed cost: "}${escapeHtml(cellText(it.landed))}</div>
+      ${it.minValNoteText ? `<div class="print-note">${escapeHtml(it.minValNoteText)}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  const totalHtml = snap.multi ? `
+    <div class="print-item">
+      <div class="print-item-title">Shipment total — ${snap.validCount} items</div>
+      <table class="print-table">
+        <tr><td>Total invoice value</td><td>${escapeHtml(cellText(snap.sumInvoice))}</td></tr>
+        <tr class="print-total-row"><td>Total customs charges</td><td>${escapeHtml(cellText(snap.sumTaxes))}</td></tr>
+      </table>
+      <div class="print-landed">Total landed cost — whole shipment: ${escapeHtml(cellText(snap.sumLanded))}</div>
+    </div>` : "";
+
+  document.getElementById("calcPrintBody").innerHTML = itemsHtml + totalHtml;
+  return true;
+}
+document.getElementById("calcExportBtn").addEventListener("click", () => {
+  const msgEl = document.getElementById("calcExportMsg");
+  if(!renderPrintQuote()){
+    msgEl.style.display = "";
+    msgEl.textContent = "Select an HS code and enter an invoice value for at least one item before exporting.";
+    return;
+  }
+  msgEl.style.display = "none";
+  window.print();
+});
 
 function openCalculatorForCode(code){
   calcItems = [1];
