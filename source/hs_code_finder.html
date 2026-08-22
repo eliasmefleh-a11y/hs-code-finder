@@ -594,6 +594,77 @@
     border-color:rgba(111,179,255,0.4);
     background:rgba(111,179,255,0.06);
   }
+  .calc-freight-btn{ width:100%; margin-top:2px; }
+  .freight-modal-box{ max-width:440px; max-height:85vh; overflow-y:auto; }
+  .freight-quote-card{
+    padding:12px;
+    margin-bottom:10px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--panel2);
+  }
+  .freight-quote-row{ display:flex; gap:8px; margin-bottom:8px; align-items:center; }
+  .freight-quote-row-3{ display:grid; grid-template-columns:1.3fr 1fr 0.8fr; gap:8px; margin-bottom:8px; }
+  .freight-input{
+    width:100%;
+    padding:9px 10px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--panel);
+    color:var(--text);
+    font-size:0.85rem;
+    outline:none;
+    box-sizing:border-box;
+  }
+  .freight-input:focus{ border-color:var(--accent); }
+  .freight-remove-btn{
+    flex-shrink:0;
+    width:30px;
+    height:30px;
+    border-radius:999px;
+    background:transparent;
+    color:var(--danger);
+    border:1px solid rgba(239,90,90,0.4);
+    cursor:pointer;
+    font-size:0.85rem;
+  }
+  .freight-remove-btn:hover{ background:rgba(239,90,90,0.1); }
+  .freight-add-btn{ width:100%; margin-bottom:14px; }
+  .freight-ranking-title{
+    font-size:0.78rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--muted);
+    margin:14px 0 8px;
+  }
+  .freight-rank-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    margin-bottom:8px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--panel2);
+    font-size:0.85rem;
+  }
+  .freight-rank-best{
+    border-color:rgba(51,209,122,0.5);
+    background:rgba(51,209,122,0.08);
+  }
+  .freight-best-badge{
+    display:inline-block;
+    font-size:0.72rem;
+    font-weight:700;
+    color:#33d17a;
+    margin-bottom:2px;
+  }
+  .freight-rank-notes{ font-size:0.78rem; color:var(--muted); margin-top:2px; }
+  .freight-rank-actions{ text-align:right; flex-shrink:0; }
+  .freight-rank-price{ font-weight:800; font-size:0.95rem; margin-bottom:6px; }
+  .freight-use-btn{ padding:6px 10px; font-size:0.78rem; }
   .calc-suggestions{ margin-top:6px; display:flex; flex-direction:column; gap:4px; }
   .calc-suggestion-item{
     text-align:left;
@@ -870,6 +941,11 @@
       <div class="hint">Lebanon's exchange rate moves — this is an editable estimate, not a live feed. Check today's official/customs rate and update it here if it's changed. This one rate applies to every item below.</div>
     </div>
     <div class="calc-section">
+      <label class="calc-label">Compare shipping company rates</label>
+      <button type="button" class="btn secondary calc-freight-btn" id="calcFreightBtn">🚢 Compare shipping rates</button>
+      <div class="hint">Add the quotes you've collected from different shipping companies or forwarders — sea, air, land/cross-border, or courier — and see them ranked by price, then apply the best one straight to the Shipping field below.</div>
+    </div>
+    <div class="calc-section">
       <label class="calc-label">Shipping, insurance &amp; broker fees (optional, USD)</label>
       <div class="calc-extra-costs-grid">
         <div>
@@ -959,6 +1035,19 @@
     <div class="changelog-list" id="changelogList"></div>
     <div class="modal-actions">
       <button class="btn" id="changelogCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="freightModal" style="display:none;">
+  <div class="modal-box freight-modal-box">
+    <h3>Compare shipping rates</h3>
+    <p class="hint">Add the quotes you've collected from different shipping companies or forwarders for this shipment. They're your own manually-entered numbers — the app doesn't fetch or verify live pricing from any carrier — but ranking them here makes the cheapest one easy to spot and apply.</p>
+    <div id="freightQuoteList"></div>
+    <button type="button" class="btn secondary freight-add-btn" id="freightAddBtn">+ Add quote</button>
+    <div id="freightRanking"></div>
+    <div class="modal-actions">
+      <button class="btn" id="freightCloseBtn">Close</button>
     </div>
   </div>
 </div>
@@ -8555,6 +8644,8 @@ function openCalculatorForCode(code){
     const el = document.getElementById(id);
     if(el) el.value = "";
   });
+  freightQuotes = [];
+  freightQuoteNextId = 1;
   switchTab("calculator");
   renderCalcItems();
   calcComputeAndRender();
@@ -8643,6 +8734,127 @@ if(calcExchangeRateEl){
   if(el) el.addEventListener("input", () => calcComputeAndRender());
 });
 renderCalcItems();
+
+/* Manual shipping-rate comparator: no shipping company exposes a free public API for live quotes
+   (that requires a paid account or broker relationship with each carrier), so this is a place to
+   enter the quotes you've already collected from different companies/forwarders, see them ranked
+   by price, and apply the cheapest (or any) straight into the Shipping field above. Not persisted
+   between sessions — like the shipping/insurance/broker fields, these are shipment-specific, and
+   openCalculatorForCode() resets them whenever a fresh calculation starts. */
+let freightQuotes = [];
+let freightQuoteNextId = 1;
+function modeLabel(mode){
+  return { sea: "Sea freight", air: "Air freight", land: "Land / cross-border", courier: "Courier" }[mode] || mode;
+}
+function renderFreightQuotes(){
+  const listEl = document.getElementById("freightQuoteList");
+  if(!listEl) return;
+  if(freightQuotes.length === 0){
+    listEl.innerHTML = '<p class="hint">No quotes added yet. Tap "+ Add quote" below for each shipping company or forwarder you\'ve gotten a price from.</p>';
+  } else {
+    listEl.innerHTML = freightQuotes.map(q => `
+      <div class="freight-quote-card">
+        <div class="freight-quote-row">
+          <input type="text" class="freight-input freight-carrier" data-qid="${q.id}" placeholder="Carrier / forwarder name" value="${escapeHtml(q.carrier)}">
+          <button type="button" class="freight-remove-btn" data-qid="${q.id}" title="Remove">✕</button>
+        </div>
+        <div class="freight-quote-row-3">
+          <select class="freight-input freight-mode" data-qid="${q.id}">
+            <option value="sea" ${q.mode==="sea"?"selected":""}>Sea</option>
+            <option value="air" ${q.mode==="air"?"selected":""}>Air</option>
+            <option value="land" ${q.mode==="land"?"selected":""}>Land</option>
+            <option value="courier" ${q.mode==="courier"?"selected":""}>Courier</option>
+          </select>
+          <input type="number" class="freight-input freight-price" data-qid="${q.id}" min="0" step="0.01" placeholder="Price USD" value="${q.price}">
+          <input type="number" class="freight-input freight-transit" data-qid="${q.id}" min="0" step="1" placeholder="Days" value="${q.transitDays}">
+        </div>
+        <input type="text" class="freight-input freight-notes" data-qid="${q.id}" placeholder="Notes (optional)" value="${escapeHtml(q.notes)}">
+      </div>`).join("");
+  }
+  renderFreightRanking();
+}
+function renderFreightRanking(){
+  const rankEl = document.getElementById("freightRanking");
+  if(!rankEl) return;
+  const valid = freightQuotes.filter(q => q.carrier.trim() && parseFloat(q.price) > 0);
+  if(valid.length === 0){
+    rankEl.innerHTML = "";
+    return;
+  }
+  const sorted = [...valid].sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+  rankEl.innerHTML = '<div class="freight-ranking-title">Ranked by price</div>' + sorted.map((q, i) => `
+    <div class="freight-rank-row ${i===0 ? "freight-rank-best" : ""}">
+      <div class="freight-rank-info">
+        ${i===0 ? '<div class="freight-best-badge">💰 Cheapest</div>' : ""}
+        <b>${escapeHtml(q.carrier)}</b> · ${modeLabel(q.mode)}${q.transitDays ? ` · ~${escapeHtml(String(q.transitDays))}d` : ""}
+        ${q.notes ? `<div class="freight-rank-notes">${escapeHtml(q.notes)}</div>` : ""}
+      </div>
+      <div class="freight-rank-actions">
+        <div class="freight-rank-price">$${Number(q.price).toLocaleString("en-US", {minimumFractionDigits:2})}</div>
+        <button type="button" class="btn secondary freight-use-btn" data-price="${q.price}">Use this rate</button>
+      </div>
+    </div>`).join("");
+}
+function openFreightModal(){
+  renderFreightQuotes();
+  document.getElementById("freightModal").style.display = "flex";
+}
+function closeFreightModal(){
+  document.getElementById("freightModal").style.display = "none";
+}
+const calcFreightBtnEl = document.getElementById("calcFreightBtn");
+if(calcFreightBtnEl) calcFreightBtnEl.addEventListener("click", openFreightModal);
+document.getElementById("freightCloseBtn").addEventListener("click", closeFreightModal);
+document.getElementById("freightModal").addEventListener("click", e => {
+  if(e.target.id === "freightModal") closeFreightModal();
+});
+document.getElementById("freightAddBtn").addEventListener("click", () => {
+  freightQuotes.push({ id: freightQuoteNextId++, carrier: "", mode: "sea", price: "", transitDays: "", notes: "" });
+  renderFreightQuotes();
+  const cards = document.querySelectorAll(".freight-quote-card .freight-carrier");
+  const last = cards[cards.length - 1];
+  if(last) last.focus();
+});
+const freightQuoteListEl = document.getElementById("freightQuoteList");
+freightQuoteListEl.addEventListener("input", e => {
+  const t = e.target;
+  const qid = t.dataset.qid;
+  if(!qid) return;
+  const q = freightQuotes.find(x => String(x.id) === String(qid));
+  if(!q) return;
+  if(t.classList.contains("freight-carrier")) q.carrier = t.value;
+  else if(t.classList.contains("freight-price")) q.price = t.value;
+  else if(t.classList.contains("freight-transit")) q.transitDays = t.value;
+  else if(t.classList.contains("freight-notes")) q.notes = t.value;
+  else return;
+  renderFreightRanking();
+});
+freightQuoteListEl.addEventListener("change", e => {
+  const t = e.target;
+  if(t.classList.contains("freight-mode")){
+    const q = freightQuotes.find(x => String(x.id) === String(t.dataset.qid));
+    if(q) q.mode = t.value;
+    renderFreightRanking();
+  }
+});
+freightQuoteListEl.addEventListener("click", e => {
+  const removeBtn = e.target.closest(".freight-remove-btn");
+  if(removeBtn){
+    freightQuotes = freightQuotes.filter(x => String(x.id) !== String(removeBtn.dataset.qid));
+    renderFreightQuotes();
+  }
+});
+document.getElementById("freightRanking").addEventListener("click", e => {
+  const useBtn = e.target.closest(".freight-use-btn");
+  if(useBtn){
+    const shipEl = document.getElementById("calcShipping");
+    if(shipEl){
+      shipEl.value = useBtn.dataset.price;
+      shipEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    closeFreightModal();
+  }
+});
 
 /* Tabs */
 function switchTab(tab){
