@@ -55,9 +55,21 @@ and `source/build_pwa.py` in this repo.
    safeguard measures rather than guaranteed full exemption. No fabricated per-code rate
    table — this is a real, sourced duty-relief rule (0% on qualifying goods), not a guess.
 
-**All 6 planned features are now DONE (as of 2026-08-22).** Any further work on this app is
-new scope, not part of this original plan — see "Conventions established" below for how to
+**All 6 originally planned features are DONE (as of 2026-08-22).** Further work below is new
+scope, chosen by the user after the plan finished — see "Conventions established" for how to
 carry the same build/test/deploy discipline forward.
+
+## Post-plan additions
+
+7. **Shipping / insurance / broker fees** — DONE (2026-08-22). Optional shipment-level cost
+   fields (Shipping, Insurance, Broker/agent fee — all USD) added next to the exchange rate
+   field. When any are entered, a new "Other costs" block (or, for a single item, an
+   "Other costs" block appended below the item) shows the breakdown and an all-in
+   "Total landed cost, incl. shipping/insurance/broker" figure — kept visually separate from
+   the existing "Total landed cost (goods + customs charges)" line so the two never blend.
+   For multi-item shipments the extra costs are added once to the shipment total only (never
+   per item, to avoid double-counting). Not persisted between sessions (unlike the exchange
+   rate) since these are shipment-specific, not a stable default.
 
 ## Conventions established (follow these exactly)
 
