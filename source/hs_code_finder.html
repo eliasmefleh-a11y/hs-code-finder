@@ -579,6 +579,21 @@
     box-sizing:border-box;
   }
   .calc-input:focus{ border-color:var(--accent); }
+  .calc-extra-costs-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(100px, 1fr));
+    gap:8px;
+  }
+  .calc-sublabel{
+    display:block;
+    font-size:0.78rem;
+    color:var(--muted);
+    margin-bottom:4px;
+  }
+  .calc-othercosts-total{
+    border-color:rgba(111,179,255,0.4);
+    background:rgba(111,179,255,0.06);
+  }
   .calc-suggestions{ margin-top:6px; display:flex; flex-direction:column; gap:4px; }
   .calc-suggestion-item{
     text-align:left;
@@ -854,11 +869,29 @@
       <input type="number" id="calcExchangeRate" class="calc-input" min="0" step="1">
       <div class="hint">Lebanon's exchange rate moves — this is an editable estimate, not a live feed. Check today's official/customs rate and update it here if it's changed. This one rate applies to every item below.</div>
     </div>
+    <div class="calc-section">
+      <label class="calc-label">Shipping, insurance &amp; broker fees (optional, USD)</label>
+      <div class="calc-extra-costs-grid">
+        <div>
+          <label class="calc-sublabel" for="calcShipping">Shipping</label>
+          <input type="number" id="calcShipping" class="calc-input" min="0" step="0.01" placeholder="0">
+        </div>
+        <div>
+          <label class="calc-sublabel" for="calcInsurance">Insurance</label>
+          <input type="number" id="calcInsurance" class="calc-input" min="0" step="0.01" placeholder="0">
+        </div>
+        <div>
+          <label class="calc-sublabel" for="calcBrokerFee">Broker / agent fee</label>
+          <input type="number" id="calcBrokerFee" class="calc-input" min="0" step="0.01" placeholder="0">
+        </div>
+      </div>
+      <div class="hint">Enter whatever you actually know for this shipment — these add on top of the customs charges to give a true all-in landed cost. Leave any of them blank to exclude it.</div>
+    </div>
     <div id="calcResults"></div>
     <button type="button" class="btn secondary calc-export-btn" id="calcExportBtn" style="display:none;">🖨️ Export / print quote</button>
     <div class="hint calc-export-msg" id="calcExportMsg" style="display:none;"></div>
     <div class="hint" style="margin-top:14px;">
-      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the higher of your invoice value or the official statutory minimum customs value (when a quantity is entered for a code that has one on file). Selecting a preferential origin (GAFTA or EU/EFTA) zeroes out duty only, assuming eligibility and a valid certificate of origin — it doesn't account for every possible exemption, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
+      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the higher of your invoice value or the official statutory minimum customs value (when a quantity is entered for a code that has one on file). Selecting a preferential origin (GAFTA or EU/EFTA) zeroes out duty only, assuming eligibility and a valid certificate of origin — it doesn't account for every possible exemption. Shipping, insurance and broker fees are only included when you enter them above. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
     </div>
   </section>
 
@@ -8362,6 +8395,19 @@ function calcComputeAndRender(){
     return;
   }
 
+  // Shipping/insurance/broker fees are shipment-level costs (not per-item), so they're read
+  // once here and only ever added into a SHIPMENT-level total — never blended into an
+  // individual item's own "goods + customs charges" landed cost, which stays exactly as it
+  // was before this existed. Same separation-of-concerns rule the rest of this calculator
+  // already follows (invoice vs. customs charges vs. landed cost are never merged either).
+  const shipping = parseFloat(document.getElementById("calcShipping")?.value) || 0;
+  const insurance = parseFloat(document.getElementById("calcInsurance")?.value) || 0;
+  const brokerFee = parseFloat(document.getElementById("calcBrokerFee")?.value) || 0;
+  const otherCosts = shipping + insurance + brokerFee;
+  const otherCostsRows = [["Shipping", shipping], ["Insurance", insurance], ["Broker / agent fee", brokerFee]].filter(([, v]) => v > 0);
+  const otherCostsRowsHtml = otherCostsRows.map(([label, usd]) => `
+      <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
+
   let shipmentTotalHtml = "";
   if(validCount > 1){
     const sumRows = [[`Duty`, sumDuty], [`VAT`, sumVat]];
@@ -8369,6 +8415,7 @@ function calcComputeAndRender(){
     if(sumEnv) sumRows.push([`Environmental tax`, sumEnv]);
     const sumRowsHtml = sumRows.map(([label, usd]) => `
       <tr><td>${escapeHtml(label)}</td><td>${cell(usd)}</td></tr>`).join("");
+    const grandTotal = sumLanded + otherCosts;
     shipmentTotalHtml = `
       <div class="calc-shipment-total">
         <div class="calc-block-label">Shipment total — ${validCount} items</div>
@@ -8379,19 +8426,44 @@ function calcComputeAndRender(){
           ${sumRowsHtml}
           <tr class="calc-total"><td>Total customs charges</td><td>${cell(sumTaxes)}</td></tr>
         </table>
+        ${otherCosts > 0 ? `
+        <table class="calc-table">
+          ${otherCostsRowsHtml}
+          <tr class="calc-total"><td>Total other costs (shipping/insurance/broker)</td><td>${cell(otherCosts)}</td></tr>
+        </table>` : ""}
         <div class="calc-landed-total">
-          <div class="calc-landed-label">Total landed cost — whole shipment</div>
-          <div class="calc-landed-amount">${calcFmtUSD(sumLanded)}</div>
-          ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(sumLanded*rate)}</div>` : ""}
+          <div class="calc-landed-label">Total landed cost — whole shipment${otherCosts > 0 ? ", incl. shipping/insurance/broker" : ""}</div>
+          <div class="calc-landed-amount">${calcFmtUSD(grandTotal)}</div>
+          ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(grandTotal*rate)}</div>` : ""}
         </div>
       </div>`;
   }
 
-  resultsBox.innerHTML = shipmentTotalHtml + itemBlocks.join("");
+  let otherCostsBlockHtml = "";
+  if(validCount === 1 && otherCosts > 0){
+    const singleLanded = snapshotItems[0] ? snapshotItems[0].landed : 0;
+    const grandTotalSingle = singleLanded + otherCosts;
+    otherCostsBlockHtml = `
+      <div class="calc-shipment-total calc-othercosts-total">
+        <div class="calc-block-label">Other costs (shipping / insurance / broker)</div>
+        <table class="calc-table">
+          ${otherCostsRowsHtml}
+          <tr class="calc-total"><td>Total other costs</td><td>${cell(otherCosts)}</td></tr>
+        </table>
+        <div class="calc-landed-total">
+          <div class="calc-landed-label">Total landed cost, incl. shipping/insurance/broker</div>
+          <div class="calc-landed-amount">${calcFmtUSD(grandTotalSingle)}</div>
+          ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(grandTotalSingle*rate)}</div>` : ""}
+        </div>
+      </div>`;
+  }
+
+  resultsBox.innerHTML = shipmentTotalHtml + itemBlocks.join("") + otherCostsBlockHtml;
 
   calcLastSnapshot = {
     rate, multi, validCount,
     sumInvoice, sumDuty, sumVat, sumExtra, sumEnv, sumTaxes, sumLanded,
+    shipping, insurance, brokerFee, otherCosts, otherCostsRows,
     items: snapshotItems,
   };
   const exportBtn = document.getElementById("calcExportBtn");
@@ -8427,15 +8499,35 @@ function renderPrintQuote(){
     </div>`;
   }).join("");
 
-  const totalHtml = snap.multi ? `
+  const otherCostsRowsHtml = (snap.otherCostsRows || []).map(([label, usd]) => `
+    <tr><td>${escapeHtml(label)}</td><td>${escapeHtml(cellText(usd))}</td></tr>`).join("");
+
+  let totalHtml = "";
+  if(snap.validCount > 1){
+    const grandTotal = snap.sumLanded + (snap.otherCosts || 0);
+    totalHtml = `
     <div class="print-item">
       <div class="print-item-title">Shipment total — ${snap.validCount} items</div>
       <table class="print-table">
         <tr><td>Total invoice value</td><td>${escapeHtml(cellText(snap.sumInvoice))}</td></tr>
         <tr class="print-total-row"><td>Total customs charges</td><td>${escapeHtml(cellText(snap.sumTaxes))}</td></tr>
+        ${snap.otherCosts > 0 ? otherCostsRowsHtml + `<tr class="print-total-row"><td>Total other costs</td><td>${escapeHtml(cellText(snap.otherCosts))}</td></tr>` : ""}
       </table>
-      <div class="print-landed">Total landed cost — whole shipment: ${escapeHtml(cellText(snap.sumLanded))}</div>
-    </div>` : "";
+      <div class="print-landed">Total landed cost — whole shipment${snap.otherCosts > 0 ? " (incl. shipping/insurance/broker)" : ""}: ${escapeHtml(cellText(grandTotal))}</div>
+    </div>`;
+  } else if(snap.validCount === 1 && snap.otherCosts > 0){
+    const singleLanded = snap.items[0] ? snap.items[0].landed : 0;
+    const grandTotalSingle = singleLanded + snap.otherCosts;
+    totalHtml = `
+    <div class="print-item">
+      <div class="print-item-title">Other costs (shipping / insurance / broker)</div>
+      <table class="print-table">
+        ${otherCostsRowsHtml}
+        <tr class="print-total-row"><td>Total other costs</td><td>${escapeHtml(cellText(snap.otherCosts))}</td></tr>
+      </table>
+      <div class="print-landed">Total landed cost, incl. shipping/insurance/broker: ${escapeHtml(cellText(grandTotalSingle))}</div>
+    </div>`;
+  }
 
   document.getElementById("calcPrintBody").innerHTML = itemsHtml + totalHtml;
   return true;
@@ -8459,6 +8551,10 @@ function openCalculatorForCode(code){
   for(const k of Object.keys(calcItemQuantity)) delete calcItemQuantity[k];
   for(const k of Object.keys(calcItemOrigin)) delete calcItemOrigin[k];
   calcItemCode[1] = code;
+  ["calcShipping", "calcInsurance", "calcBrokerFee"].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.value = "";
+  });
   switchTab("calculator");
   renderCalcItems();
   calcComputeAndRender();
@@ -8539,6 +8635,13 @@ if(calcExchangeRateEl){
   const savedRate = Store.get(CALC_RATE_KEY, null);
   calcExchangeRateEl.value = savedRate || CALC_DEFAULT_RATE;
 }
+// Shipping/insurance/broker fees are shipment-specific, so unlike the exchange rate they are
+// NOT persisted to Store — carrying yesterday's broker fee into today's different shipment
+// would be misleading, not a convenience.
+["calcShipping", "calcInsurance", "calcBrokerFee"].forEach(id => {
+  const el = document.getElementById(id);
+  if(el) el.addEventListener("input", () => calcComputeAndRender());
+});
 renderCalcItems();
 
 /* Tabs */
