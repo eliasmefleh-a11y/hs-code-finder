@@ -557,6 +557,7 @@
   .chip.envtax{color:#7fd8c9;border-color:rgba(127,216,201,0.4);}
   .chip.restrict{color:var(--danger);border-color:rgba(241,101,101,0.35);}
   .chip.minval{color:var(--warn);border-color:rgba(226,163,61,0.5);background:rgba(226,163,61,0.1);font-weight:700;}
+  .chip.permit{color:#6fb3ff;border-color:rgba(111,179,255,0.45);background:rgba(111,179,255,0.1);font-weight:700;}
   .chip.page{color:var(--muted);}
   .card .actions{
     display:flex;
@@ -707,6 +708,11 @@
     background:rgba(51,209,122,0.1);
     border-color:rgba(51,209,122,0.4);
     color:#33d17a;
+  }
+  .calc-minval-warning.calc-permit-warning{
+    background:rgba(111,179,255,0.1);
+    border-color:rgba(111,179,255,0.4);
+    color:#6fb3ff;
   }
   .calc-dutybase-note{
     padding:4px 6px !important;
@@ -882,7 +888,7 @@
   </div>
 </div>
 <div class="disclaimer" id="disclaimerBox" style="display:none;">
-  ⚠️ Built-in data (5,379 codes) is <b>extracted from the official Lebanese Customs tariff book</b> ("تعريفة الرسوم الجمركية وفقاً للنظام المنسق", Majlis al-A'la lil-Jamarik, 2012 4th amendment), with updates applied throughout: <b>VAT shown as 11%</b> (the book's legacy 10% rate, updated per current rate — a further rise to 12% has been proposed but was not yet confirmed in effect), a flat <b>+3% tax</b> on every code that carries VAT (not limited to any particular chapters) — VAT-exempt codes never carry the +3% — and a new <b>Environmental Tax (الضريبة البيئية)</b> per Law No. 38 (effective 5 January 2026, amended 20 August 2026), shown as its own chip ranging from <b>0.1% up to 3%</b> of customs value depending on HS chapter/heading per the current official rate table; unlike the +3% tax, it applies regardless of VAT/duty status and is collected by Customs the same way as duty. Automated text-extraction from a 640-page PDF can still contain occasional errors, especially in the hierarchical description context — the <b>duty/VAT % and the "Tariff book p.N" reference on each result are the most reliable fields; use the page number to cross-check the original PDF before filing anything consequential.</b> Go to the <b>Import Data</b> tab to load an updated official file if you have one.
+  ⚠️ Built-in data (5,379 codes) is <b>extracted from the official Lebanese Customs tariff book</b> ("تعريفة الرسوم الجمركية وفقاً للنظام المنسق", Majlis al-A'la lil-Jamarik, 2012 4th amendment), with updates applied throughout: <b>VAT shown as 11%</b> (the book's legacy 10% rate, updated per current rate — a further rise to 12% has been proposed but was not yet confirmed in effect), a flat <b>+3% tax</b> on every code that carries VAT (not limited to any particular chapters) — VAT-exempt codes never carry the +3% — and a new <b>Environmental Tax (الضريبة البيئية)</b> per Law No. 38 (effective 5 January 2026, amended 20 August 2026), shown as its own chip ranging from <b>0.1% up to 3%</b> of customs value depending on HS chapter/heading per the current official rate table; unlike the +3% tax, it applies regardless of VAT/duty status and is collected by Customs the same way as duty. Automated text-extraction from a 640-page PDF can still contain occasional errors, especially in the hierarchical description context — the <b>duty/VAT % and the "Tariff book p.N" reference on each result are the most reliable fields; use the page number to cross-check the original PDF before filing anything consequential.</b> Go to the <b>Import Data</b> tab to load an updated official file if you have one. The blue <b>🛂 Permit</b> chip flags HS chapters/headings that Lebanon's Ministry of Economy and Trade and Ministry of Public Health name as requiring prior approval from a specific ministry before import (sourced from their published non-tariff-measures documentation) — it is a heads-up, not a complete list of every restricted category, so always confirm with the relevant ministry or your customs broker.
 </div>
 
 <main>
@@ -7779,6 +7785,50 @@ function findByCode(code){
    headline so it's visible at a glance instead of buried in a wall of Arabic. The raw note text
    is always preserved too (in the badge's title/tooltip and in the fallback), so nothing is ever
    hidden behind a parse that might not perfectly match an unusual/malformed entry. */
+/* Restricted-goods / permit-required flags, as STRUCTURED data — distinct from the free-text
+   "restrict" chip above, which just echoes whatever note the tariff book happened to have.
+   This list is sourced from Lebanon's Ministry of Economy and Trade "Survey on Non-Tariff
+   Measures on Trade" (economy.gov.lb) and the Ministry of Public Health's own published scope
+   of oversight (moph.gov.lb) — it names, per category, which ministry/agency requires prior
+   approval before import. It is NOT exhaustive (Lebanon's non-tariff measures cover more ground
+   than any single in-app list can promise to capture), so this is presented as a heads-up to
+   double-check with the relevant ministry/customs broker, never as a guarantee that a code is
+   (or isn't) restricted. Matched by heading (4-digit) first, then chapter (2-digit) — most
+   specific rule wins. Nothing here is guessed: every entry maps to a real category named in
+   the sourced documents, not an invented per-code rate or requirement. */
+const PERMIT_REQUIREMENTS = [
+  // Heading-level (most specific) rules first
+  { prefix: "2501", ministry: "Ministry of Economy and Trade", note: "Salt is subject to Ministry of Economy and Trade import controls." },
+  { prefix: "2503", ministry: "Ministry of Economy and Trade / Ministry of Interior", note: "Sulphur (a chemical precursor) requires advance approval before import." },
+  { prefix: "2808", ministry: "Ministry of Economy and Trade / Ministry of Interior", note: "Nitric acid (a chemical precursor) requires advance approval before import." },
+  { prefix: "2524", ministry: "Ministry of Environment", note: "Asbestos and related hazardous materials require Ministry of Environment approval before import." },
+  { prefix: "3808", ministry: "Ministry of Agriculture", note: "Pesticides require Ministry of Agriculture approval before import." },
+  { prefix: "8517", ministry: "Ministry of Post and Telecommunications", note: "Telephone/telecom equipment requires Ministry of Telecommunications approval before import." },
+  { prefix: "8525", ministry: "Ministry of Post and Telecommunications", note: "Radio/TV transmission apparatus requires Ministry of Telecommunications approval before import." },
+  { prefix: "8526", ministry: "Ministry of Post and Telecommunications", note: "Radar and radio navigation apparatus requires Ministry of Telecommunications approval before import." },
+  { prefix: "8544", ministry: "Ministry of Industry", note: "Electrical cables and wires require Ministry of Industry approval before import." },
+  // Chapter-level (broader) rules
+  { prefix: "06", ministry: "Ministry of Agriculture", note: "Live plants, bulbs and seedlings require Ministry of Agriculture approval / phytosanitary clearance before import." },
+  { prefix: "11", ministry: "Ministry of Economy and Trade", note: "Milling products (flour and similar) are subject to Ministry of Economy and Trade import controls." },
+  { prefix: "17", ministry: "Ministry of Economy and Trade", note: "Sugar is subject to Ministry of Economy and Trade import controls." },
+  { prefix: "22", ministry: "Ministry of Economy and Trade", note: "Beverages, including alcoholic drinks, are subject to Ministry of Economy and Trade import controls." },
+  { prefix: "27", ministry: "Ministry of Energy and Water", note: "Petroleum products, fuels and gases require Ministry of Energy and Water approval before import." },
+  { prefix: "30", ministry: "Ministry of Public Health", note: "Pharmaceuticals and medicines require MOPH registration before import. Veterinary drugs instead need Ministry of Agriculture (Animal Resources Directorate) approval." },
+  { prefix: "33", ministry: "Ministry of Public Health", note: "Cosmetics and perfumery require MOPH notification (labeling, ingredient and safety documentation) before import." },
+  { prefix: "93", ministry: "Ministry of Defense / Ministry of Interior", note: "Arms, ammunition and explosives require advance approval from the Ministry of Defense or Ministry of Interior before import." },
+];
+function getPermitInfo(code){
+  if(!code) return null;
+  const digits = String(code).replace(/[^\d]/g, "");
+  if(!digits) return null;
+  // check longest prefixes first so a heading-level rule outranks its parent chapter-level rule
+  const sorted = [...PERMIT_REQUIREMENTS].sort((a, b) => b.prefix.length - a.prefix.length);
+  for(const rule of sorted){
+    if(digits.startsWith(rule.prefix)) return rule;
+  }
+  return null;
+}
+
 function parseMinValue(notes){
   if(!notes) return null;
   const m = notes.match(/حد\s*أدنى\s*:?\s*([^\d]+?)\s*([\d,.]+)\s*LL/);
@@ -7805,6 +7855,10 @@ function renderCard(row){
         : `<span class="chip restrict">${escapeHtml(row.notes)}</span>`)
     : "";
   const pageChip = row.page ? `<span class="chip page">Tariff book p.${escapeHtml(String(row.page))}</span>` : "";
+  const permitInfo = getPermitInfo(row.code);
+  const permitChip = permitInfo
+    ? `<span class="chip permit" title="${escapeHtml(permitInfo.note)}">🛂 Permit: ${escapeHtml(permitInfo.ministry)}</span>`
+    : "";
   return `
   <div class="card" data-code="${row.code}">
     <div class="card-icon" title="Chapter ${row.code.slice(0,2)} category">${chapterIcon(row.code)}</div>
@@ -7814,6 +7868,7 @@ function renderCard(row){
       ${showAr ? `<div class="desc-ar">${escapeHtml(row.ar)}</div>` : ""}
       <div class="meta">
         <span class="chip chapter">Chapter ${row.code.slice(0,2)}</span>
+        ${permitChip}
         ${dutyChip}
         ${vatChip}
         ${extraTaxChip}
@@ -8182,6 +8237,9 @@ function renderCalcItems(){
         <input type="number" class="calc-input calc-item-quantity-input" data-item-id="${id}" placeholder="e.g. 10" min="0" step="0.01" value="${escapeHtml(qtyVal)}">
         <div class="hint">This code has an official statutory minimum customs value of ${escapeHtml(minVal.amount)} LL per ${escapeHtml(minVal.unit)}. Enter the shipment quantity to auto-check your declared value against it.</div>
       </div>` : "";
+    const permitInfo = row ? getPermitInfo(row.code) : null;
+    const permitBlock = permitInfo ? `
+      <div class="calc-minval-warning calc-permit-warning">🛂 This code may require prior approval from <b>${escapeHtml(permitInfo.ministry)}</b>. ${escapeHtml(permitInfo.note)}</div>` : "";
     return `
     <div class="calc-item">
       ${multi ? `<div class="calc-item-header"><span class="calc-item-label">Item ${idx+1}</span><button type="button" class="calc-item-remove" data-item-id="${id}">✕ Remove</button></div>` : ""}
@@ -8196,6 +8254,7 @@ function renderCalcItems(){
         <input type="number" class="calc-input calc-item-invoice-input" data-item-id="${id}" placeholder="e.g. 50000" min="0" step="0.01" value="${escapeHtml(invoiceVal)}">
       </div>
       ${quantityBlock}
+      ${permitBlock}
     </div>`;
   }).join("");
 }
