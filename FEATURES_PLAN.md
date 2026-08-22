@@ -29,26 +29,35 @@ and `source/build_pwa.py` in this repo.
    this feature itself). Badge date is derived automatically from the newest changelog
    entry.
 
-4. **Shareable quote / PDF export** — PENDING.
-   Button on the calculator to export the current breakdown (single or multi-item) as a
-   clean PDF or shareable summary, so the user can send a landed-cost estimate straight to
-   a client without retyping numbers.
+4. **Shareable quote / PDF export** — DONE (2026-08-22). "Export / print quote" button on the
+   calculator renders the current breakdown (single or multi-item, including shipment total)
+   into a printer-friendly black-on-white view (`#calcPrintArea`, shown only under
+   `@media print`) and opens the browser print dialog — the user can "Save as PDF" from
+   there. No PDF library bundled, so the app stays fully offline/dependency-free.
 
-5. **Restricted-goods / permit flags as structured data** — PENDING.
-   Currently `row.notes` free text becomes a generic "restrict" chip unless it parses as a
-   statutory minimum value. Research which HS chapters require prior ministry approval
-   (Health for cosmetics/pharma, Economy for certain electronics, Agriculture for plants/
-   food, etc. — verify against Lebanon's official customs requirements, do not guess) and
-   surface it as its own clearly labeled chip/warning, distinct from the minimum-value chip.
+5. **Restricted-goods / permit flags as structured data** — DONE (2026-08-22). New
+   `PERMIT_REQUIREMENTS` table (HS chapter/heading → ministry, longest-prefix-wins) sourced
+   from Lebanon's Ministry of Economy and Trade "Survey on Non-Tariff Measures on Trade"
+   (economy.gov.lb) and MOPH's published regulatory scope (pharma/cosmetics/medical devices).
+   Surfaces as a blue "🛂 Permit: [Ministry]" chip on search results and a matching warning
+   block in the calculator — distinct from the free-text "restrict" chip and the
+   statutory-minimum chip. Explicitly presented as non-exhaustive (a heads-up, not a
+   guarantee) in both the chip tooltip and the Details disclaimer.
 
-6. **Preferential origin / FTA rates** — PENDING (most research-heavy, do last).
-   Lebanon has reduced/zero duty under GAFTA (Arab countries) and the EU association
-   agreement when goods carry a valid certificate of origin. Add an origin toggle to the
-   calculator (e.g. "apply GAFTA rate" / "apply EU rate" where applicable) that changes the
-   duty used in the calculation. Requires sourcing real per-chapter/heading preferential
-   rates from an authoritative source — do not fabricate numbers; if a reliable rate table
-   can't be found, ship the toggle UI with a clear "rate not yet available for this code"
-   state rather than guessing.
+6. **Preferential origin / FTA rates** — DONE (2026-08-22). Calculator line items get an
+   optional "Preferential origin" selector (None / GAFTA / EU-EFTA). Selecting one zeroes
+   out customs DUTY only (VAT/extra/environmental tax are unaffected — those are domestic
+   taxes that apply regardless of origin), sourced from lebtrade.gov.lb and the U.S.
+   Commercial Service's Lebanon Country Commercial Guide, both confirming duty-free
+   treatment for qualifying goods with a valid certificate of origin. Shows an on-screen
+   note stating the assumption (eligibility + certificate of origin) and, for agricultural
+   chapters (01-24), an extra caveat that agri products can carry separate schedules or
+   safeguard measures rather than guaranteed full exemption. No fabricated per-code rate
+   table — this is a real, sourced duty-relief rule (0% on qualifying goods), not a guess.
+
+**All 6 planned features are now DONE (as of 2026-08-22).** Any further work on this app is
+new scope, not part of this original plan — see "Conventions established" below for how to
+carry the same build/test/deploy discipline forward.
 
 ## Conventions established (follow these exactly)
 
