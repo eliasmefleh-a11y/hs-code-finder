@@ -714,6 +714,11 @@
     border-color:rgba(111,179,255,0.4);
     color:#6fb3ff;
   }
+  .calc-minval-warning.calc-origin-note{
+    background:rgba(127,216,201,0.12);
+    border-color:rgba(127,216,201,0.45);
+    color:#7fd8c9;
+  }
   .calc-dutybase-note{
     padding:4px 6px !important;
     border-bottom:none !important;
@@ -930,7 +935,7 @@
     <button type="button" class="btn secondary calc-export-btn" id="calcExportBtn" style="display:none;">🖨️ Export / print quote</button>
     <div class="hint calc-export-msg" id="calcExportMsg" style="display:none;"></div>
     <div class="hint" style="margin-top:14px;">
-      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the higher of your invoice value or the official statutory minimum customs value (when a quantity is entered for a code that has one on file). This doesn't account for exemptions or trade-agreement preferential rates, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
+      Estimate only. Each rate (duty, VAT, extra tax, environmental tax) is applied as a flat percentage of the higher of your invoice value or the official statutory minimum customs value (when a quantity is entered for a code that has one on file). Selecting a preferential origin (GAFTA or EU/EFTA) zeroes out duty only, assuming eligibility and a valid certificate of origin — it doesn't account for every possible exemption, and doesn't include shipping/insurance/broker fees. Always confirm the final figure against the current tariff book and customs valuation rules before filing.
     </div>
   </section>
 
@@ -1012,7 +1017,7 @@
     <div class="print-date" id="calcPrintDate"></div>
   </div>
   <div id="calcPrintBody"></div>
-  <div class="print-disclaimer">Estimate only — not an official customs declaration. Duty, VAT, extra tax and environmental tax are applied as a flat percentage of the higher of the invoice value or the official statutory minimum customs value (when applicable). Does not include shipping, insurance, broker fees, exemptions, or trade-agreement preferential rates. Confirm against the current tariff book and customs valuation rules before filing.</div>
+  <div class="print-disclaimer">Estimate only — not an official customs declaration. Duty, VAT, extra tax and environmental tax are applied as a flat percentage of the higher of the invoice value or the official statutory minimum customs value (when applicable). A selected preferential origin zeroes out duty only, assuming eligibility and a valid certificate of origin. Does not include shipping, insurance, or broker fees. Confirm against the current tariff book and customs valuation rules before filing.</div>
 </div>
 
 <script>
@@ -8208,7 +8213,32 @@ let calcNextItemId = 2;
 const calcItemCode = {};
 const calcItemInvoice = {};
 const calcItemQuantity = {}; // shipment quantity, in the unit the statutory minimum is quoted in — only asked for when the selected code actually has a parsed minimum on file
+const calcItemOrigin = {}; // preferential-origin selection per item: "" (none), "gafta", or "eu"
 let calcLastSnapshot = null; // most recent computed breakdown, captured by calcComputeAndRender for the print/export quote
+
+/* Preferential origin / FTA duty relief. Lebanon eliminates customs DUTY (not VAT, not the
+   extra/environmental taxes — those are domestic taxes charged regardless of origin) on goods
+   that both (a) originate in a qualifying country and (b) travel with a valid certificate of
+   origin — per Lebanon's own trade-guide portal (lebtrade.gov.lb) and the U.S. Commercial
+   Service's Lebanon Country Commercial Guide (trade.gov):
+     - GAFTA (Greater Arab Free Trade Area, 17 Arab League member states, in force since 1998):
+       duty-free for qualifying agriculture, agri-food and industrial goods with a certificate
+       of origin from the Lebanese Chamber of Commerce.
+     - EU / EFTA Association Agreement (in force 2006 / 2015): duty-free for qualifying EU/EFTA
+       agriculture, agri-food and industrial goods with a EUR.1 certificate of origin.
+   This is a real, sourced rule — not a fabricated per-code rate table, which is why it's applied
+   as "duty becomes 0%" rather than as a guessed alternate percentage. It is NOT a substitute for
+   checking product-specific eligibility: agricultural goods (chapters 01-24) in particular can
+   carry separate schedules, tariff-rate quotas or safeguard measures under either agreement, so
+   the note below calls that out explicitly rather than promising blanket coverage. */
+const FTA_INFO = {
+  gafta: { label: "GAFTA (Arab League)", cert: "a Certificate of Origin from the Lebanese Chamber of Commerce" },
+  eu: { label: "EU / EFTA Association Agreement", cert: "a valid EUR.1 certificate of origin" },
+};
+function isAgriChapter(code){
+  const ch = parseInt(String(code).replace(/[^\d]/g, "").slice(0, 2), 10);
+  return !isNaN(ch) && ch >= 1 && ch <= 24;
+}
 
 function calcFmtUSD(n){
   return "$" + n.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -8240,6 +8270,17 @@ function renderCalcItems(){
     const permitInfo = row ? getPermitInfo(row.code) : null;
     const permitBlock = permitInfo ? `
       <div class="calc-minval-warning calc-permit-warning">🛂 This code may require prior approval from <b>${escapeHtml(permitInfo.ministry)}</b>. ${escapeHtml(permitInfo.note)}</div>` : "";
+    const originVal = calcItemOrigin[id] || "";
+    const originBlock = row ? `
+      <div class="calc-section">
+        <label class="calc-label">Preferential origin (optional)</label>
+        <select class="calc-input calc-item-origin-select" data-item-id="${id}">
+          <option value="" ${originVal === "" ? "selected" : ""}>None — standard duty rate</option>
+          <option value="gafta" ${originVal === "gafta" ? "selected" : ""}>GAFTA (Arab League) — Certificate of Origin</option>
+          <option value="eu" ${originVal === "eu" ? "selected" : ""}>EU / EFTA Association Agreement — EUR.1 certificate</option>
+        </select>
+        <div class="hint">If these goods qualify under a trade agreement and you hold the certificate of origin, select it here to zero out the customs duty (VAT/extra/environmental tax still apply).</div>
+      </div>` : "";
     return `
     <div class="calc-item">
       ${multi ? `<div class="calc-item-header"><span class="calc-item-label">Item ${idx+1}</span><button type="button" class="calc-item-remove" data-item-id="${id}">✕ Remove</button></div>` : ""}
@@ -8253,6 +8294,7 @@ function renderCalcItems(){
         <label class="calc-label">Invoice value (USD)</label>
         <input type="number" class="calc-input calc-item-invoice-input" data-item-id="${id}" placeholder="e.g. 50000" min="0" step="0.01" value="${escapeHtml(invoiceVal)}">
       </div>
+      ${originBlock}
       ${quantityBlock}
       ${permitBlock}
     </div>`;
@@ -8306,7 +8348,14 @@ function calcComputeAndRender(){
     const minApplied = minValueUSD !== null && minValueUSD > invoice;
     const dutyBase = minApplied ? minValueUSD : invoice;
 
-    const duty = dutyBase * dutyPct / 100;
+    // Preferential-origin (FTA) duty relief: a qualifying certificate of origin zeroes out the
+    // customs DUTY only — VAT and the extra/environmental taxes are domestic taxes and still
+    // apply regardless of origin. See the FTA_INFO comment above for sourcing.
+    const origin = calcItemOrigin[id] || "";
+    const originApplied = !!(origin && FTA_INFO[origin]);
+    const effectiveDutyPct = originApplied ? 0 : dutyPct;
+
+    const duty = dutyBase * effectiveDutyPct / 100;
     const vat = dutyBase * vatPct / 100;
     const extra = dutyBase * extraPct / 100;
     const env = dutyBase * envPct / 100;
@@ -8316,7 +8365,7 @@ function calcComputeAndRender(){
     sumInvoice += invoice; sumDuty += duty; sumVat += vat; sumExtra += extra; sumEnv += env;
     sumTaxes += totalTaxes; sumLanded += landed;
 
-    const dutyRows = [[`Duty (${dutyPct}%)`, duty], [`VAT (${vatPct}%)`, vat]];
+    const dutyRows = [[`Duty (${effectiveDutyPct}%${originApplied ? `, was ${dutyPct}%` : ""})`, duty], [`VAT (${vatPct}%)`, vat]];
     if(row.extraTax) dutyRows.push([`Extra tax (${extraPct}%)`, extra]);
     if(row.envTax) dutyRows.push([`Environmental tax (${envPct}%)`, env]);
     const dutyRowsHtml = dutyRows.map(([label, usd]) => `
@@ -8344,9 +8393,19 @@ function calcComputeAndRender(){
       minValNoteText = `Declared value meets the statutory minimum (${minVal.amount} LL/${minVal.unit} × ${qty}) — customs charges are based on the invoice value as declared.`;
     }
 
+    let originNote = "";
+    let originNoteText = "";
+    if(originApplied){
+      const info = FTA_INFO[origin];
+      const agriCaveat = isAgriChapter(row.code) ? ` Agricultural goods (chapter ${row.code.slice(0,2)}) can carry separate schedules or safeguard measures under this agreement rather than guaranteed full exemption — verify eligibility for this specific code before filing.` : "";
+      originNote = `
+      <div class="calc-minval-warning calc-origin-note">🌍 ${escapeHtml(info.label)} preferential rate applied: duty reduced to 0% (was ${dutyPct}%), assuming the goods qualify and you hold ${escapeHtml(info.cert)}. VAT, extra tax and environmental tax are unaffected.${agriCaveat}</div>`;
+      originNoteText = `${info.label} preferential rate applied: duty reduced to 0% (was ${dutyPct}%), assuming eligibility and ${info.cert}. VAT/extra/environmental tax unaffected.${agriCaveat}`;
+    }
+
     const desc = (currentLang === "ar" ? row.ar : (row.en || row.ar)) || "";
     snapshotItems.push({
-      code: row.code, desc, invoice, dutyRows, totalTaxes, landed, minValNoteText,
+      code: row.code, desc, invoice, dutyRows, totalTaxes, landed, minValNoteText, originNoteText,
       dutyBaseNote: minApplied ? `Based on the statutory minimum value (${calcFmtUSD(minValueUSD)}), not the invoice value.` : "",
     });
 
@@ -8368,6 +8427,7 @@ function calcComputeAndRender(){
           ${rate ? `<div class="calc-landed-amount-lbp">${calcFmtLBP(landed*rate)}</div>` : ""}
         </div>
         ${minValNote}
+        ${originNote}
       </div>`);
   });
 
@@ -8440,6 +8500,7 @@ function renderPrintQuote(){
       </table>
       <div class="print-landed">${snap.multi ? "Landed cost — this item: " : "Total landed cost: "}${escapeHtml(cellText(it.landed))}</div>
       ${it.minValNoteText ? `<div class="print-note">${escapeHtml(it.minValNoteText)}</div>` : ""}
+      ${it.originNoteText ? `<div class="print-note">${escapeHtml(it.originNoteText)}</div>` : ""}
     </div>`;
   }).join("");
 
@@ -8473,6 +8534,7 @@ function openCalculatorForCode(code){
   for(const k of Object.keys(calcItemCode)) delete calcItemCode[k];
   for(const k of Object.keys(calcItemInvoice)) delete calcItemInvoice[k];
   for(const k of Object.keys(calcItemQuantity)) delete calcItemQuantity[k];
+  for(const k of Object.keys(calcItemOrigin)) delete calcItemOrigin[k];
   calcItemCode[1] = code;
   switchTab("calculator");
   renderCalcItems();
@@ -8506,6 +8568,13 @@ if(calcLineItemsEl){
       calcComputeAndRender();
     }
   });
+  calcLineItemsEl.addEventListener("change", e => {
+    const originSelect = e.target.closest(".calc-item-origin-select");
+    if(originSelect){
+      calcItemOrigin[originSelect.dataset.itemId] = originSelect.value;
+      calcComputeAndRender();
+    }
+  });
   calcLineItemsEl.addEventListener("click", e => {
     const suggBtn = e.target.closest(".calc-suggestion-item");
     const removeBtn = e.target.closest(".calc-item-remove");
@@ -8523,6 +8592,7 @@ if(calcLineItemsEl){
       delete calcItemCode[id];
       delete calcItemInvoice[id];
       delete calcItemQuantity[id];
+      delete calcItemOrigin[id];
       renderCalcItems();
       calcComputeAndRender();
     }
