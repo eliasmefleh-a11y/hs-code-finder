@@ -82,6 +82,19 @@ carry the same build/test/deploy discipline forward.
    total. Entries are in-memory only (not persisted to Store, and reset whenever a new
    calculation starts via openCalculatorForCode) since quotes are shipment-specific.
 
+9. **"Ask AI" shortcut** — DONE (2026-08-22). User asked for "a shortcut for AI in the app."
+   Clarified scope first: the app is fully offline/dependency-free by design (no bundled API
+   key, no backend), so this doesn't call an AI API directly or ship a hardcoded key. Instead,
+   a 🤖 button on every search-result/favorite card, and a "🤖 Ask AI" link on each calculator
+   line item, builds a plain-language question from that code's own data (description,
+   duty/VAT/extra/environmental tax rates, permit flag if any) and opens it in Claude via the
+   `claude.ai/new?q=...` deep link, which pre-fills the message composer for the user to review
+   before sending — confirmed live via research (Aug 2026) as working today, though it's an
+   observed/unofficial behavior, not a documented Anthropic API, so it could stop working
+   without notice. The same question text is also copied to the clipboard as a fallback. No
+   network calls are made by the app itself; requires the user to already be signed in to
+   claude.ai in that browser tab.
+
 ## Conventions established (follow these exactly)
 
 - **Single source of truth**: `hs_code_finder.html` (the master file). Never edit
