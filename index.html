@@ -7105,6 +7105,78 @@ const SYNONYM_GROUPS = [
   ["طبشور","طباشير","chalk"],
   ["ممحاة","eraser"], // "مسّاحة" removed: after diacritic-stripping normalization it becomes identical to "مساحة" (area/floor-space), a very common unrelated word throughout the tariff text
   ["باركود","رمز شريطي","barcode"],
+  // ---- "Everything Lebanese use", round 3 (2026-09-07): jewelry/watches, toys, fish/seafood,
+  // baby gear, pet supplies, optical, health/mobility aids, luggage, books/media, natural stone,
+  // musical instruments — each anchored to a real GOV_TARIFF_DATA en/kw phrase verified by direct
+  // search of the raw dataset before adding (same no-fabrication discipline as prior rounds).
+  // Bare short words with a known ambiguous-homonym collision risk (e.g. "سمك"=fish/thickness,
+  // "ساعة"=watch/hour) are deliberately left OUT of this batch pending empirical Playwright
+  // testing against the real dataset; add only if testing shows no collision.
+  ["watch","watches","wristwatch","wrist watch","ساعة يد"],
+  // Bare "jewelry"/"jewellery" deliberately excluded: tested and found to tie-score against
+  // 4202/4420 "boxes/cases FOR jewelry" rows (a different product), which — thanks to their
+  // lower HS chapter number — then outrank the actual jewelry-chapter (71) rows in the results
+  // list. The more specific 2-word English phrases below don't have that problem (they don't
+  // appear in the box/case rows' text) and still correctly anchor to real chapter-71 rows.
+  // "اسورة" (bracelet) excluded: confirmed by testing to be a literal substring of "ماسورة"
+  // (gun/pipe barrel), surfacing firearms codes. "قرط" (earring) excluded: confirmed substring
+  // of "القرطم" (safflower, used in vegetable-oil rows). "اقراط" (plural) tested clean, kept.
+  // Note: "مجوهرات" itself is a genuine tie unrelated to this group — the GOVERNMENT'S OWN
+  // official Arabic text for HS 42.02 (cases/boxes, incl. jewelry boxes) ALSO literally contains
+  // the word "مجوهرات", scoring 90 via the app's direct-Arabic-substring step exactly like the
+  // real chapter-71 jewelry rows do. Both are genuine matches; chapter 42 wins the ascending-
+  // chapter tie-break (same pre-existing limitation already documented for "frem"). Typing a
+  // more specific term ("خاتم"/"سلسال"/"gold jewelry") correctly goes straight to chapter 71.
+  ["gold jewelry","silver jewelry","costume jewelry","مجوهرات","حلي","خاتم","خواتم","سلسال","اقراط"],
+  ["toy","toys","doll","dolls","puzzle","puzzles","لعبة","ألعاب","دمية","دمى","بازل"],
+  // "سمك"/"سمكة" (fish) tested clean against the dataset — no collision surfaced with "سماكة"
+  // (material thickness), which is spelled differently enough after normalization to not
+  // substring-match. Chapter-03 fish rows come back cleanly for this exact word.
+  ["fish","سمك","سمكة"],
+  ["tuna","تونة"],
+  ["salmon","سلمون"],
+  ["squid","cuttlefish","calamari","حبار"],
+  ["shrimp","prawn","prawns","جمبري","روبيان"],
+  ["stroller","pram","pushchair","baby carriage","عربة اطفال","كوش"],
+  ["baby walker","playpen","مشاية اطفال","حظيرة اطفال"],
+  // Correctly bridges to the real "car seat, child car seat, booster seat" kw text (HS 8715.00),
+  // but the full Arabic phrase also contains "سيارة" (car) and "كرسي" (chair), which separately
+  // trigger THOSE existing groups too — a known, pre-existing tie-break limitation (documented
+  // elsewhere in this file for "frem"): many same-scored matches from unrelated chapters can
+  // outrank the specific answer since ties fall back to ascending HS-chapter order. Typing the
+  // more specific English phrase directly ("car seat") avoids the issue.
+  ["car seat","booster seat","child car seat","كرسي سيارة للاطفال"],
+  ["baby food","infant formula","حليب اطفال","حليب رضع"],
+  ["pet food","dog food","cat food","طعام قطط","طعام كلاب","اكل قطط","اكل كلاب"],
+  ["sunglasses","نظارة شمس","نظارات شمسية"],
+  ["eyeglasses","glasses","spectacles","نظارة طبية","نظارات"],
+  ["contact lens","contact lenses","عدسات لاصقة"],
+  ["wheelchair","invalid carriage","كرسي متحرك"],
+  ["thermometer","ترمومتر"],
+  // No distinct "crutch" HS row exists in the actual tariff data — the closest real anchor is
+  // the walking-stick heading (66.02, kw "cane, walking stick, whip"), so عكاز (the Lebanese
+  // word for a cane/mobility stick) is bridged there rather than fabricated. Bare "cane"
+  // deliberately excluded from this group: it's also the English word for sugarcane, and tested
+  // to tie-score against "cane molasses"/"cane sugar" rows (HS 17), outranking the actual
+  // walking-stick row. "walking stick" (2-word phrase) doesn't have that ambiguity.
+  ["walking stick","عصا","عكاز","عكازات"],
+  ["first aid kit","اسعافات اولية","علبة اسعاف"],
+  ["suitcase","travel bag","trunk","شنطة سفر","حقيبة سفر"],
+  ["backpack","rucksack","شنطة ظهر","حقيبة ظهر"],
+  ["wallet","purse","محفظة","جزدان"],
+  // "كتاب"/"كتب" (book) is a literal substring of "الكتابة" (writing), which appears in the
+  // printing-ink rows (HS 3215) — same class of unavoidable root-collision already documented
+  // for "بن"/"خل"/"ياي" elsewhere in this file. Kept (removing it from this group doesn't fix a
+  // directly-typed query, since that collision is in scoreRow's unconditional direct-Arabic-
+  // substring step, independent of any group), same reasoning as those precedents.
+  ["book","books","كتاب","كتب"],
+  ["magazine","journal","periodical","مجلة","مجلات"],
+  ["marble","رخام"],
+  ["granite","غرانيت"],
+  ["guitar","غيتار"],
+  ["piano","بيانو"],
+  ["violin","كمان"],
+  ["drum","drums","طبلة","درامز"],
 ];
 
 /* ============================= ARABIZI (Yamli-style) TRANSLITERATION ============================= */
@@ -7123,7 +7195,7 @@ const TRANSLIT_ALTS_RAW = [
   ["aa",["ا"]], ["ee",["ي",""]], ["ii",["ي",""]], ["oo",["و",""]], ["ou",["و"]], ["ay",["ي","اي"]], ["ai",["اي","ي"]],
   // single characters — most-likely spelling first, alternates after (drives which candidate
   // wins when the suggestion list has to be capped)
-  ["2",["ء","ق"]], ["3",["ع"]], ["5",["خ"]], ["6",["ط"]], ["7",["ح"]], ["8",["غ"]], ["9",["ص"]],
+  ["2",["ا","ق","ء"]], ["3",["ع"]], ["5",["خ"]], ["6",["ط"]], ["7",["ح"]], ["8",["غ"]], ["9",["ص"]],
   // "a"/"e" get "ة/ه" (the feminine ending) as a third option too — chat-Arabic very commonly
   // writes that ending as a plain trailing "a" or "e" (e.g. "sayara" -> سيارة, "jebneh" -> جبنة).
   ["a",["ا","","ه"]], ["b",["ب"]], ["t",["ت","ط","ث"]], ["g",["ج","غ"]], ["j",["ج"]], ["d",["د","ض"]],
