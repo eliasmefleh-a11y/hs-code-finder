@@ -395,3 +395,32 @@ carry the same build/test/deploy discipline forward.
     - Re-verified full 46-case round-3 regression suite: 46/46 still pass, zero regressions from
       these engine-level changes.
     - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
+
+15. **User-corrected dialect spellings (round 5)** — DONE (2026-09-07). User (a native Lebanese
+    speaker) directly corrected several of my own round-4 test spellings, which surfaced two more
+    real gaps rather than just being spelling notes:
+    - **"e" needed "ا" as a translit option**: the user's own natural spellings "se3a" (ساعة/
+      watch) and "douleb" (دولاب/tire) both use "e" for what the dataset's real word spells as
+      a mid-word alif — "sa3a"/"doulab" (with "a") already worked, but the equally-valid "e"
+      spelling did not, because `"e"`'s alternatives were `["ي","","ه"]` with no `ا`. Fixed:
+      `["e",["ي","","ه","ا"]]` (same fourth-option pattern as the "a"/"i" fixes). Verified:
+      "se3a" now resolves both "سعة" (capacity) and "ساعة" (watch) as exact candidates — both
+      are genuinely real dataset words, so both are surfaced as suggestion chips rather than
+      one being force-ranked over the other (same principle as other documented ties); "douleb"
+      now resolves "دولاب" exactly.
+    - **"دولاب"/"دواليب" (tire) had NO bridge to actual tire results at all** — a real, higher-
+      impact gap the user's correction exposed. "دولاب" already existed in `SYNONYM_GROUPS` but
+      only as a "wardrobe/cabinet/closet" synonym; the tariff book's own tire rows (HS 4011) only
+      ever use the formal word "إطار", so a customs agent typing the everyday word for tire
+      ("بدي غيّر الدولاب") got furniture-hardware results, not tires — arguably the single most
+      practically important gap found this round, since tires are a routine import/customs item.
+      Fixed by adding "دولاب"/"دواليب" to the existing `["tire","tyre",...,"اطار",...]` group.
+      Kept the pre-existing wardrobe mapping too rather than removing it — "دولاب" is a genuine
+      homonym in Lebanese dialect (wheel/tire vs. wardrobe/cupboard), so both are real and both
+      are now reachable; verified searching "دولاب" (and Arabizi "douleb"/"doulab") now returns
+      HS 4011.x tire rows.
+    - Also reconfirmed (no change needed, already correct): "khanzir" → خنزير (pig) resolves
+      correctly and distinctly from "janzir"/"jinzir" → جنزير (chain) — the two are not confused.
+    - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (same
+      98 OK / 11 pre-existing test-authoring misses as round 4, zero new regressions).
+    - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).

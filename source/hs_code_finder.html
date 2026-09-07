@@ -6540,7 +6540,13 @@ const SYNONYM_GROUPS = [
   ["laptop","notebook computer","لابتوب","كمبيوتر محمول"],
   ["fridge","refrigerator","freezer","ثلاجة","براد","فريزر","تلاجة","مجمدة"],
   ["car","automobile","vehicle","سيارة"],
-  ["tire","tyre","tires","tyres","اطار","اطارات","كاوتشوك"],
+  // "دولاب"/"دواليب" added per user correction: this is the everyday Lebanese word for a car
+  // tire ("بدي غيّر الدولاب"/"I need to change the tire") — the tariff book's own text only
+  // ever uses the formal "إطار", so without this bridge a customs agent typing the dialect
+  // word would get zero tire results. Note "دولاب" is a genuine homonym also curated elsewhere
+  // in this file as "wardrobe/cabinet" — both are real, kept as separate ties rather than
+  // picking one (same accepted-ambiguity precedent as "مجوهرات").
+  ["tire","tyre","tires","tyres","اطار","اطارات","كاوتشوك","دولاب","دواليب"],
   ["bag","handbag","شنطة","حقيبة"],
   ["shoes","footwear","sneakers","حذاء","أحذية","كندرة"],
   ["shirt","تيشيرت","قميص"],
@@ -7130,8 +7136,12 @@ const TRANSLIT_ALTS_RAW = [
   ["l",["ل"]], ["m",["م"]], ["n",["ن"]], ["h",["ه","ح",""]], ["w",["و",""]], ["y",["ي",""]],
   // "i" gets "ا" as a third option too: many words start with a kasra-hamza sound people type
   // as plain "i" (e.g. "itar" for إطار/tire, a real VOCAB word) rather than "2itar"/"eetar".
+  // "e" gets "ا" as a fourth, lowest-priority option too: Lebanese Arabizi frequently spells
+  // a mid-word long-ا sound with "e" (e.g. "se3a" for ساعة/watch, "douleb" for دولاب/tire) —
+  // confirmed by testing both against the real dataset, which failed to resolve until this
+  // was added (mirrors the same "a"/"i" fixes above).
   ["x",["كس"]], ["c",["ك"]], ["p",["ب"]], ["v",["ف"]], ["u",["و",""]], ["i",["ي","","ا"]],
-  ["e",["ي","","ه"]], ["o",["و",""]],
+  ["e",["ي","","ه","ا"]], ["o",["و",""]],
 ];
 /* Franco-Arabic commonly represents a SHADDA (consonant gemination — e.g. "سكّر"/sukkar,
    "سكين"/sikkeen's "kk", "حمّام"/hammam, "خلّ"/khall, "ستّ"/sitt) by literally typing the Latin
