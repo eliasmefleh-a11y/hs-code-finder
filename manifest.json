@@ -1,13 +1,13 @@
 {
-  "name": "HS Code Finder",
+  "name": "HS Code Finder — Freight Solutions SAL",
   "short_name": "HS Code Finder",
-  "description": "Bilingual (Arabic/English) HS tariff code lookup with VAT and duty rates, built from the official Lebanese customs tariff book.",
+  "description": "Bilingual (Arabic/English) HS tariff code lookup with VAT and duty rates, built from the official Lebanese customs tariff book. By Freight Solutions SAL.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0a0e17",
-  "theme_color": "#0a0e17",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "lang": "en",
   "dir": "ltr",
   "icons": [
