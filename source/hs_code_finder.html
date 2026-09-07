@@ -7121,10 +7121,16 @@ const TRANSLIT_ALTS_RAW = [
   ["2",["ا","ق","ء"]], ["3",["ع"]], ["5",["خ"]], ["6",["ط"]], ["7",["ح"]], ["8",["غ"]], ["9",["ص"]],
   // "a"/"e" get "ة/ه" (the feminine ending) as a third option too — chat-Arabic very commonly
   // writes that ending as a plain trailing "a" or "e" (e.g. "sayara" -> سيارة, "jebneh" -> جبنة).
-  ["a",["ا","","ه"]], ["b",["ب"]], ["t",["ت","ط","ث"]], ["g",["ج","غ"]], ["j",["ج"]], ["d",["د","ض"]],
+  // "d" gets "ذ" as a low-priority third option too: Lebanese Arabizi very often collapses the
+  // "dh" digraph to plain "d" for common words (e.g. "dahab" for ذهب/gold, real VOCAB word,
+  // rather than the more careful "dhahab") — confirmed by testing "dahab" against the real
+  // dataset, which failed to resolve until this was added.
+  ["a",["ا","","ه"]], ["b",["ب"]], ["t",["ت","ط","ث"]], ["g",["ج","غ"]], ["j",["ج"]], ["d",["د","ض","ذ"]],
   ["r",["ر"]], ["z",["ز","ظ"]], ["s",["س","ص"]], ["f",["ف"]], ["q",["ق"]], ["k",["ك"]],
   ["l",["ل"]], ["m",["م"]], ["n",["ن"]], ["h",["ه","ح",""]], ["w",["و",""]], ["y",["ي",""]],
-  ["x",["كس"]], ["c",["ك"]], ["p",["ب"]], ["v",["ف"]], ["u",["و",""]], ["i",["ي",""]],
+  // "i" gets "ا" as a third option too: many words start with a kasra-hamza sound people type
+  // as plain "i" (e.g. "itar" for إطار/tire, a real VOCAB word) rather than "2itar"/"eetar".
+  ["x",["كس"]], ["c",["ك"]], ["p",["ب"]], ["v",["ف"]], ["u",["و",""]], ["i",["ي","","ا"]],
   ["e",["ي","","ه"]], ["o",["و",""]],
 ];
 /* Franco-Arabic commonly represents a SHADDA (consonant gemination — e.g. "سكّر"/sukkar,
@@ -7503,7 +7509,19 @@ function buildVocabIndex(){
   }
   for(const group of SYNONYM_GROUPS){
     for(const g of group){
-      if(/[؀-ۿ]/.test(g)) add(normalizeArabic(g), g, 2);
+      if(/[؀-ۿ]/.test(g)){
+        const gn = normalizeArabic(g);
+        add(gn, g, 2);
+        // Also index each individual word within a multi-word Arabic phrase, so a person
+        // typing (in Arabizi) just ONE word from a compound dialect phrase like "جنزير الكاما"
+        // or "ساعة يد" can still resolve that word via the Arabizi engine, not just the exact
+        // full phrase. Without this, real words that only ever appear as part of a curated
+        // multi-word group (e.g. جنزير/chain, مشاية/walker, ساعة/watch) are unreachable.
+        if(gn.includes(' ')){
+          const words = g.split(/\s+/).filter(Boolean);
+          words.forEach(w => add(normalizeArabic(w), w, 2));
+        }
+      }
     }
   }
   buildVocabTrie();
