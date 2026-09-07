@@ -445,3 +445,50 @@ carry the same build/test/deploy discipline forward.
     - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (same
       98 OK / 11 pre-existing test-authoring misses, zero new regressions from the "ch" change).
     - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
+
+17. **Full-vocabulary Arabizi coverage audit + beam-search architecture fix (round 7)** — DONE
+    (2026-09-07). User asked to make sure literally every word available across the 5,379 HS
+    codes — main terms and alternatives — is searchable via Arabizi, "like the Yamli website
+    uses." This was largely already true architecturally (`buildVocabIndex()` already tokenizes
+    every word out of every row's Arabic text plus all `SYNONYM_GROUPS` entries into `VOCAB` —
+    13,545 words total), but rather than assume that, it was verified at scale and one real gap
+    in the underlying algorithm was found and fixed:
+    - **Built an automated round-trip coverage test** (`/tmp/full_vocab_audit.js`, not shipped —
+      a one-off verification script): for every one of the 13,545 `VOCAB` words, generate a
+      plausible Latin spelling via a reverse letter-map, feed it through `arabiziSuggestions()`,
+      and check the real word comes back. This scales the same verification method used in prior
+      rounds (hand-picking realistic words) from a few dozen examples to effectively the whole
+      dataset.
+    - **First run: 1,028 of 8,942 testable words (~11%) came back with ZERO suggestions at all.**
+      Investigating the pattern (not just individual words) found the root cause: `arabiziCandidates()`
+      used a single shared read-position for the whole beam and, at each position, committed to
+      only the LONGEST matching Latin pattern — so when a genuine two-letter sequence with no
+      vowel between the letters happened to also spell a registered digraph (e.g. "k"+"h" with no
+      vowel between them, spelling "kh"), the algorithm could only ever produce the digraph
+      reading (خ) and had no way to also produce the correct two-letter reading. This is a real,
+      systemic architecture gap, not a vocabulary gap — it silently broke ANY word with a ك+ة,
+      س+ة, ت+ة, or د+ة ending typed with no vowel (a very common word-ending pattern in Arabic:
+      e.g. فواكه/fruits, شبكة/network-screen), plus the equivalent for "sh"/"th"/"dh"/"ch"/"gh".
+    - **Fixed by rewriting `arabiziCandidates()`** (and its new helper `stepArabiziStates()`) to
+      track each candidate's own read-position instead of one shared cursor, and to try EVERY
+      matching Latin pattern at a candidate's position — not just the longest — spawning the
+      digraph reading AND the split single-letter reading as parallel branches. The existing
+      dictionary-guided pruning (`trieHasPrefix`) keeps this contained in practice: most of the
+      extra branches this creates dead-end immediately against real VOCAB words, so beam width
+      doesn't blow up. Confirmed via the same automated audit re-run: "missing entirely" dropped
+      from 1,028 to **0** — every one of the 8,942 testable words is now at least reachable as a
+      suggestion — and the exact-top-match rate rose from 87.9% to **97.6%**. Spot-verified real
+      examples directly: "fawakeh"/"fawakih" → فواكه (previously unreachable via the "kh" collision
+      in less careful spellings), "shabake"/"shabaka" → شباك/شبكة, "mkhattat" → مخطط.
+    - The remaining ~2.4% ("found but not exact-top") are inherent Arabic phonetic ambiguity that
+      Lebanese pronunciation itself doesn't cleanly distinguish — ض/د, ظ/ز, ص/س pairs that sound
+      near-identical in spoken Lebanese Arabic — where the correct word is still returned as an
+      alternate suggestion chip, not lost. Consistent with this project's established position on
+      genuine ties (documented for "مجوهرات", "سعة"/"ساعة", etc.): both are real, both are shown,
+      neither is force-ranked over the other.
+    - Verified no performance regression: full 13,545-word audit runs in ~4 seconds; edge cases
+      (empty input, single characters, pathological repeated-digraph strings up to 30 chars) all
+      resolve in under 25ms with no errors or hangs.
+    - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (98 OK /
+      11 pre-existing test-authoring misses, unchanged) — zero regressions from the rewrite.
+    - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
