@@ -14,11 +14,15 @@ MASTER = "hs_code_finder.html"
 PWA_OUT = "pwa/index.html"
 PWA_FLAT_OUT = "pwa_flat/index.html"
 
-HEAD_OLD = '<title>HS Code Finder — كاشف رموز التعرفة الجمركية</title>\n<style>'
+HEAD_OLD = '''<title>HS Code Finder — كاشف رموز التعرفة الجمركية</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Belleza&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>'''
 HEAD_NEW = '''<title>HS Code Finder — كاشف رموز التعرفة الجمركية</title>
-<meta name="description" content="Bilingual (Arabic/English) HS tariff code lookup with VAT and duty rates, built from the official Lebanese customs tariff book.">
+<meta name="description" content="Bilingual (Arabic/English) HS tariff code lookup with VAT and duty rates, built from the official Lebanese customs tariff book. By Freight Solutions SAL.">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0a0e17">
+<meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -26,6 +30,9 @@ HEAD_NEW = '''<title>HS Code Finder — كاشف رموز التعرفة الج�
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="HS Code Finder">
 <meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Belleza&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>'''
 
 CSS_OLD = "  .disclaimer{\n    max-width:920px;\n    margin:8px auto 0;"
