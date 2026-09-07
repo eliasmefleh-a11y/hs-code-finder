@@ -95,6 +95,112 @@ carry the same build/test/deploy discipline forward.
    network calls are made by the app itself; requires the user to already be signed in to
    claude.ai in that browser tab.
 
+## Data quality: full English translation
+
+10. **Complete Arabic → English translation of all 5,379 tariff rows** — DONE, deployed
+    live 2026-09-07 (built 2026-08-25). A separate, earlier project (started 2026-08-18, before the
+    "one feature per day" plan above): 5,263 of the 5,379 GOV_TARIFF_DATA rows had only an
+    Arabic description and no English text or search keywords, so searching in English
+    silently missed most of the dataset. Split into 18 batches of ~300 rows
+    (`/tmp/translate_batches/batch_0XX.json`), each translated by a dedicated agent that
+    resolves the tariff book's hierarchical Arabic (parent heading + `→`/`-`-marked
+    sub-item) into one natural standalone English description, plus 2-5 plain-English
+    search keywords, written to `output_0XX.json`. Paused partway through (14/18 batches
+    done) by a session usage limit; resumed via a scheduled trigger that finished the
+    remaining 4 batches (07, 12, 13, 16) and merged all 18 into `hs_code_finder.html` by
+    code. All 5,379 rows now have a real English description, rebuilt into
+    `pwa/index.html`/`pwa_flat/index.html`, and verified **locally** with Playwright (100%
+    coverage, English keyword search surfaces newly-translated codes, full regression of
+    every other feature passed clean) — the pre-existing 116 rows that already had English
+    were left untouched, and the merge matched every one of the 5,263 translated rows with
+    zero left blank.
+
+    **Deploy still outstanding**: the browser bridge to the user's desktop wasn't connected
+    when this run reached the deploy step, and no git/gh credentials are available in this
+    cloud container as a fallback. The next run should detect this note, skip straight to
+    the deploy step (upload `pwa_flat/index.html` as-is — no rebuild needed), verify live,
+    sync this file and `source/hs_code_finder.html` to the repo, then mark this DONE.
+    **Update (2026-09-04)**: the current `pwa/index.html`/`pwa_flat/index.html` build now
+    also includes item 11 below (Lebanese dialect auto-parts vocabulary), so a single deploy
+    covers both outstanding items — no need to deploy them separately.
+
+## Data quality: Lebanese dialect / colloquial search vocabulary
+
+11. **Lebanese-Arabic dialect & French-loanword vocabulary expansion, auto-parts pass** —
+    DONE, deployed live 2026-09-07 (built 2026-09-04). User reported that typing "frem" (Lebanese/French
+    garage slang for brakes) returned nothing useful, and asked to broaden dialect coverage,
+    "starting with auto parts." Root cause: the codebase already had an extensive
+    `SYNONYM_GROUPS` dialect vocabulary (fruits/veg, meat/dairy, spices, kitchenware,
+    construction/hardware, electronics, clothing, cosmetics, stationery, and a large existing
+    automotive-parts section — clutch, gearbox, radiator, spark plug, starter, timing belt,
+    steering, carburetor, alternator, etc.), but the existing brake group only had the
+    compound phrase "colier frem" (brake caliper), not the standalone word "frem" a user
+    would type alone.
+    - Added standalone "frem"/"freim" to the existing brake group.
+    - Verified against real `GOV_TARIFF_DATA` rows (not guessed) and added 4 new dialect
+      groups plus one extension, each anchored to a real tariff-book HS line: brake pads /
+      friction material ("بلاكيت"/plaquette, "تيل الفرامل" → HS 6813.20/6813.81/6813.89),
+      brake fluid ("زيت الفرامل"/"سائل الفرامل" → HS 3819.00), vehicle wiring harness
+      ("هارنس", "طاقم الأسلاك" → HS 8544.30), leaf/coil spring ("يايه" → HS 7320.10), and
+      power-steering pump added to the existing steering-wheel group ("بمبة الدركسيون" → HS
+      8708.94).
+    - Deliberately did **not** add speculative terms with no matching row in the actual
+      tariff data (e.g. fuel tank, AC condenser, tie-rod) rather than guess — consistent with
+      this project's no-fabrication rule. Also deliberately excluded the bare 3-letter form
+      "ياي" after testing showed it collides with unrelated rows via the app's direct
+      substring-match path (same class of risk already documented for short words like
+      "بن"/"خل" elsewhere in this file) — kept the longer, safe form "يايه" instead.
+    - **Known pre-existing limitation surfaced by this testing (not introduced by this
+      change, and not fixed here — out of scope for a vocabulary addition)**: when many rows
+      tie at the same synonym-match score (e.g. searching "frem"/"فرامل" alone matches brake
+      fluid, friction material, electromagnetic brakes, railway brakes, bicycle brakes, *and*
+      the motor-vehicle brakes row all at once), the tie-break falls back to ascending HS
+      chapter order, so the motor-vehicle-specific code (8708.30) — almost always what a
+      Lebanese customs agent means — can land a few rows down the list rather than first.
+      The word now correctly surfaces brake-related codes (previously it surfaced nothing),
+      but a future pass could look at boosting vehicle-context rows in the tie-break if this
+      turns out to matter in practice.
+    - Verified with a dedicated Playwright test (`frem`/`freim`/`بلاكيت`/`تيل الفرامل`/
+      `زيت الفرامل`/`هارنس`/`طاقم الأسلاك`/`يايه`/`بمبة الدركسيون` all resolve to the correct
+      HS chapter) plus a full regression of Features 8, 9, and the item-10 translation data —
+      all clean, zero new errors.
+    - Rebuilt into `pwa/index.html`/`pwa_flat/index.html` and `HS_Code_Finder_PWA.zip`
+      (md5-verified). Deployed live 2026-09-07 together with item 10 and the rebrand below.
+    - Follow-up "everyday goods, broad pass" (2026-09-04, same day, user said "Everything
+      lebanese use"): reviewed categories beyond auto parts for genuine gaps — i.e. Lebanese
+      dialect/French-loanwords with no literal match in the tariff text, not already-covered
+      ground (the existing vocabulary already has thorough food, household, hardware,
+      electronics, clothing, cosmetics and stationery sections). Found and fixed 3 real gaps,
+      each verified against an actual HS row:
+      - Hookah/shisha ("أرجيلة"/"نرجيلة"/argileh/nargileh/hookah) → HS 9614.00 (smoking
+        pipes). The government row doesn't mention hookahs at all under that official
+        wording, so this needed two changes to actually work: added "hookah, shisha,
+        argileh, nargileh, waterpipe" directly to that row's own English keyword field (so
+        English search finds it), and a synonym group bridging the Arabic dialect words to
+        "غلايين" (the plural that IS literally in the government text) rather than to the
+        colloquial words themselves — a synonym group only helps if at least one member
+        literally appears in the row it should match, which the colloquial words alone did
+        not. Deliberately left "شيشة" out of the group: it's a plain substring of "حشيشة"
+        (a common word across agriculture/pharmacy rows for herbs/hemp), so it already
+        collides via the app's direct-Arabic-substring search step regardless of any group —
+        confirmed by testing, and not fixable by a vocabulary change.
+      - Propane/cooking-gas cylinder ("بمبة غاز"/"قنينة غاز"/"اسطوانة غاز") → HS 7311.00.
+      - Building elevator ("أسانسير", the French loanword Lebanese actually say, vs. the
+        literal-but-rarely-spoken "مصعد") → HS 8428.10.
+      Considered and deliberately skipped (no matching HS row found, or already covered
+      without a group): fuel tank, AC condenser, tie-rod end, e-cigarette/vape (no dataset
+      row found for any of these); sunglasses, watches, toys, umbrellas, cigarette lighters
+      (already have direct English keywords and/or the literal Arabic term embedded in their
+      rows, so no dialect gap exists there).
+    - Re-verified with an expanded Playwright test (all 3 new terms plus every round-1 term)
+      and a full regression of Features 8, 9, and item 10's translation data — all clean.
+      Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified) — this
+      supersedes the round-1 build note above. Deployed live 2026-09-07.
+    - The user's original "Both, starting with auto parts" request is now substantively
+      covered (auto parts + a broad everyday-goods pass). Future gaps, if any surface from
+      real usage, should follow the same rule: verify against an actual `GOV_TARIFF_DATA` row
+      before adding, never add a word on vibes alone.
+
 ## Conventions established (follow these exactly)
 
 - **Single source of truth**: `hs_code_finder.html` (the master file). Never edit
@@ -155,3 +261,97 @@ carry the same build/test/deploy discipline forward.
   user a final wrap-up message, and disable this scheduled task
   (`mcp__claude-code-remote__update_trigger` with `enabled:false` using this run's own
   trigger id, which will be included in the run's prompt).
+
+## Branding: Freight Solutions SAL rebrand
+
+12. **Rebrand the app to match freightsolutionsal.com** — DONE (2026-09-07). User asked
+    for the app to be rebranded with Freight Solutions SAL's actual logo and colors,
+    uploaded their print logo (`logocmyk2forcups.pdf`, a CMYK file for cup printing) and
+    said to match it to the live website. Research first, then applied:
+    - Vectorized the exact "F" mark from the supplied PDF with `pdftocairo -svg` (no
+      rasterizing/guessing the shape) and computed its precise bounding box
+      (326.39,131.02 → 620.31,520.02) to crop a clean inline SVG `viewBox` — replacing the
+      old generic ship/box icon in `.brand-mark` and in the app's PWA icon set.
+    - Pulled the live site's actual computed styles via a real browser (not guessed):
+      background `#0f172a` (dark navy), interactive/CTA blue `#0085ff`, headings in
+      "Belleza", body in "Work Sans", company name displayed as "Freight Solutions sal".
+      The print logo's flat CMYK navy (`#264391`) and the site's own logo GIF (a
+      multi-tone blue gradient, sampled via canvas pixel analysis since the file couldn't
+      be fetched directly from this sandbox) informed the icon gradient
+      (`#0085ff` → `#003366`) rather than a flat color, to visually echo the real site
+      asset instead of just reusing the print-only navy.
+    - Updated `:root` CSS variables (`--bg`, `--accent`, new `--accent-dark`,
+      `--accent-ink`) and every hardcoded rgba/hex that referenced the old accent, so the
+      whole app repaints consistently rather than leaving stray old-brand colors in some
+      components.
+    - Added a "FREIGHT SOLUTIONS SAL" byline (linked to the website) next to the header
+      title, and a "Built by Freight Solutions SAL — Moving Lebanese Business since 1978"
+      line in the footer, both using the site's real tagline text.
+    - Regenerated the full PWA icon set (icon-192/512, maskable variants, apple-touch-icon,
+      favicon-16/32, favicon.ico) with the new logo+gradient via a small Pillow script
+      (`/tmp/brand/make_icons.py`), replacing the old blue-green box icon everywhere;
+      bumped the service worker's `CACHE_NAME` (v4/v3 → v5 in both `pwa/` and `pwa_flat/`)
+      so previously-installed users actually pick up the new icons instead of serving the
+      old ones from cache indefinitely.
+    - Added Google Fonts (Belleza + Work Sans) via `<link>` tags — required updating
+      `build_pwa.py`'s `HEAD_OLD`/`HEAD_NEW` anchors since the `<title>`→`<style>` gap
+      changed; kept the actual `<title>` text unchanged (browser-tab text isn't part of
+      what the user asked to rebrand) but updated the meta description, manifest
+      `name`/`description`, and `theme-color`/`background_color` to `#0f172a` and mention
+      Freight Solutions SAL.
+    - Verified with a full regression (Features 8/9, item-10 translation data, both rounds
+      of dialect-vocabulary tests) — all identical pass/fail results to before the rebrand,
+      confirming no functional regressions from the CSS/header changes. Visually verified
+      via screenshot against the live site's own screenshot.
+    - Deployed live and verified on
+      `https://eliasmefleh-a11y.github.io/hs-code-finder/` (2026-09-07, via GitHub web
+      upload once the browser session was signed back into GitHub); this single deploy
+      also carries items 10 and 11's previously-pending changes (full English translation +
+      auto-parts/everyday-goods dialect vocabulary), since all three had been built but
+      undeployed, blocked on the same browser-bridge connection.
+
+## Search engine: Yamli-style Arabizi understanding + broad vocabulary round 3
+
+13. **"Understand every word, Yamli-style"** — DONE (2026-09-07). User asked for the search to
+    understand any word the way yamli.com does (typing Franco-Arabic/Arabizi and having it
+    resolve to the right Arabic word), plus more Lebanese-dialect vocabulary for the 5,379
+    codes. Investigation found the app ALREADY has a real dictionary-guided Arabizi beam-search
+    engine (`arabiziCandidates`/`arabiziSuggestions`/`resolveArabiziPhrase`, `VOCAB`/`VOCAB_TRIE`
+    built automatically from every word in the actual 5,379 rows + SYNONYM_GROUPS) — this is
+    the Yamli mechanism the user was asking for; it just had one correctness bug and needed
+    more curated dialect vocabulary on top of it, not a rebuild.
+    - **Bug fix**: `TRANSLIT_ALTS_RAW`'s `"2"` (hamza) alternatives were `["ء","ق"]` — but
+      `normalizeArabic()` collapses `أ/إ/آ/ا` to plain `ا` everywhere (including in `VOCAB_TRIE`),
+      while bare `ء` is never touched by that normalization, so a "2"-initial word whose real
+      spelling starts with `أ` (e.g. "2asanseer" → أسانسير/elevator) could never reach it —
+      `ء` literally never equals `ا` after normalization. Fixed by adding `ا` as the primary
+      alternative: `["2",["ا","ق","ء"]]`. Verified: "2asanseer" now correctly resolves to
+      اسانسير (HS 8428.10); "2ahwe" → قهوة (the ق path) still resolves correctly, unchanged.
+    - **Vocabulary round 3** (~30 new SYNONYM_GROUPS entries, each verified against a real
+      GOV_TARIFF_DATA en/kw phrase before adding, same no-fabrication discipline as prior
+      rounds): watches, general jewelry + rings/necklaces/earrings, toys/dolls/puzzles, tuna/
+      salmon/squid/shrimp, baby stroller/walker/car-seat/infant-formula, pet food, sunglasses/
+      eyeglasses/contact lenses, wheelchairs, thermometers, a cane/walking-stick bridge for
+      "عكاز" (no distinct "crutch" HS row exists — bridged to the closest real one, 66.02),
+      suitcases/backpacks/wallets, magazines, marble/granite, and guitar/piano/violin/drum.
+    - Three additions were tested and found to collide, then fixed or dropped rather than
+      shipped broken: "اسورة" (bracelet) is a literal substring of "ماسورة" (gun/pipe barrel)
+      — dropped; "قرط" (earring) is a substring of "القرطم" (safflower oil) — dropped, its
+      clean plural "اقراط" kept; bare "cane" is also the English word for sugarcane and tied
+      against "cane molasses" rows — dropped in favor of the unambiguous 2-word "walking stick".
+      Bare "سمك" (fish) and "ساعة يد" (wristwatch phrase) tested clean and were kept; bare
+      "ساعة" (hour/watch homonym) tested dirty (matched unrelated machinery specs) and was
+      deliberately left out.
+    - **New, out-of-scope-to-fix observation** (documented in code comments at each spot):
+      "مجوهرات" (general "jewelry") is a genuine tie, not a bug — the government's own official
+      Arabic text for HS 42.02 (cases, including jewelry boxes) literally contains the word
+      "مجوهرات" too, scoring exactly like the real chapter-71 jewelry rows via the app's direct-
+      Arabic-substring step; chapter 42 wins only because of the pre-existing ascending-HS-
+      chapter tie-break (same class of limitation already documented for "frem"/vehicle brakes).
+      Typing a more specific term ("خاتم"/"سلسال"/"gold jewelry") correctly reaches chapter 71
+      directly. "كتاب" (book) remains a literal substring of "الكتابة" (writing, appears in
+      printing-ink rows) — same accepted root-collision class as "بن"/"خل"/"ياي".
+    - Verified with a dedicated 46-case Playwright suite (all round-3 terms, the "2" fix via
+      the real `resolveArabiziPhrase` → `runSearch` flow exactly as the UI uses it, and full
+      regression of every prior round) — 46/46 passed, zero regressions.
+    - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
