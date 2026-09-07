@@ -492,3 +492,68 @@ carry the same build/test/deploy discipline forward.
     - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (98 OK /
       11 pre-existing test-authoring misses, unchanged) — zero regressions from the rewrite.
     - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
+
+18. **More everyday dialect/product vocabulary added, round 8** — DONE (2026-09-07). After round
+    17's full-vocabulary audit and beam-search fix, the user asked again for the same "search
+    every word... like Yamli" request; since that exact work had just been verified complete
+    (0 words unreachable, 97.6% exact-top), a check-in confirmed what they actually wanted now
+    was more everyday Lebanese/dialect product-name coverage on top of what's auto-indexed from
+    the raw tariff text. Investigated ~65 candidate everyday household/product terms against the
+    real dataset (never fabricating an anchor — every addition below was verified against an
+    actual HS row's own text first) and made the following additive `SYNONYM_GROUPS` changes:
+    - Added `"تلفاز"` to the existing TV group (already had تلفزيون/تلفزيونات).
+    - Added `"غسالات"` (plural) to the existing washing-machine group.
+    - Added `"كنبة"` and `"كنب"` (the two common bare words for couch) to the existing sofa
+      group, which previously only had the less common "كنباية".
+    - Added `"قمصان"` (plural of shirt) to the existing shirt group, anchored to the real
+      6105.x/6205.x/6206.x shirt headings. Note: "قمصان" is a genuine, pre-existing homonym —
+      it's also literally the word used in the HS 48.20 "file folder covers" heading — so this
+      query now ties between the two senses; the ascending-chapter tie-break currently favors the
+      48.20 folder-covers rows first, with the real shirt codes appearing lower in the same
+      results list (still visible, not lost). Consistent with this project's standing policy
+      (established with دولاب/wheel-vs-wardrobe in round 5): keep both real meanings rather than
+      remove one, and don't rewrite core tie-break logic to favor one dialect sense over another.
+    - Added a new group for keys: `["مفتاح","مفاتيح","key","spare key","blank key"]`, anchored to
+      the real HS 8301.70 row ("Keys presented separately" / kw "key, spare key, blank key").
+      Investigation found "مفتاح" is itself a genuine three-way Arabic homonym in this exact
+      dataset — lock key (83.01), mechanic's wrench ("مفتاح ربط" literally opens the HS 82.04
+      spanners/wrenches heading text), and the same heading-family's repeated boilerplate text
+      across 83.01.10–.60 (padlocks, vehicle locks, furniture locks) before reaching 83.01.70. The
+      real key code is still reachable (verified at rank ~11–13 of the results list), just not
+      top-ranked — an accepted tie of the same kind as "شاحن"/charger from round 8's investigation,
+      not something worth a core-algorithm change to fix.
+    - Added a new group for football: `["كرة قدم","كره قدم","football","soccer ball"]`, anchored
+      to the real HS 9506.62 row ("Inflatable balls (footballs, basketballs, etc.)" / kw
+      "football, soccer ball, basketball, volleyball") — verified this one is a clean, exact,
+      top-ranked match with no competing homonym.
+    - Added bare `"قلم"` and plural `"اقلام"`/`"أقلام"` to the existing ballpoint-pen group.
+      Investigation found chapter 68's stone/marble/paving headings (69 different HS lines) all
+      share a repeated legal cross-reference footnote in their raw text that mentions "أقلام
+      الأردواز" (slate pencils, a real cross-reference to HS 96.09) — a known instance of this
+      dataset's already-documented "messy concatenated multi-heading text" PDF-extraction
+      artifact (same class of issue first documented in round 3 for قرط/القرطم). This makes
+      "قلم"/"اقلام" tie with all of chapter 68 before reaching the real pen/pencil codes in
+      chapter 96 (verified reachable around rank ~17, not top). Documented as an accepted,
+      out-of-scope data-artifact limitation rather than special-cased in the scoring algorithm.
+    - Investigated and confirmed a vacuum-cleaner group already existed
+      (`["مكنسة كهربائية","vacuum cleaner","vacuum","هوفر","hoover"]`) — no change needed.
+    - Confirmed "جاكيت"/jacket was not actually broken (6103.x is a genuinely correct
+      jacket/blazer heading) — no change needed, an earlier assumption during investigation was
+      corrected before any edit was made.
+    - **Explicitly did NOT fabricate a mapping for diaper/حفاضة/حفاضات** — searched the entire
+      5,379-row dataset and confirmed no HS heading for diapers exists at all in this Lebanese
+      customs tariff book. This is a genuine gap in the underlying government dataset itself, not
+      a search-algorithm problem, and per this project's strict no-fabrication rule it must be
+      reported to the user as a real limitation rather than pointed at an unrelated code.
+    - براغي (screws, plural) and عطر (perfume, singular) remain from earlier in round 8 as
+      confirmed COMPLETE losses (the correct code never appears even at rank 20, worse than a
+      simple tie) — left undecided pending this same round's broader findings; given that this
+      round surfaced several more instances of the identical "genuine tie / repeated-heading-text
+      or footnote artifact, resolved by ascending chapter order" pattern (قمصان، مفتاح، اقلام),
+      the consistent decision is to document these as accepted, out-of-scope limitations rather
+      than attempt a core-scoring or tie-break rewrite, matching this project's established
+      posture of never touching the shared scoring/tie-break logic to chase individual collisions.
+    - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (98 OK /
+      11 pre-existing test-authoring misses, unchanged) — zero regressions from all round-8
+      additions.
+    - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
