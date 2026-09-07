@@ -7120,7 +7120,13 @@ const SYNONYM_GROUPS = [
    one silent (and sometimes wrong) guess. */
 const TRANSLIT_ALTS_RAW = [
   // multi-character patterns (checked longest-first at each position)
-  ["kh",["خ"]], ["gh",["غ","ق"]], ["sh",["ش"]], ["th",["ث","ذ"]], ["dh",["ذ","ض"]], ["ch",["تش"]],
+  ["kh",["خ"]], ["gh",["غ","ق"]], ["sh",["ش"]], ["th",["ث","ذ"]], ["dh",["ذ","ض"]],
+  // Lebanese Arabizi is French-influenced (unlike the more English-influenced Egyptian/Gulf
+  // convention), so "ch" is overwhelmingly used for ش (as in French "chat"), not the English
+  // "ch" sound — e.g. "chanta"/شنطة (bag), "chi"/شي (thing), "chams"/شمس (sun). "sh" still works
+  // for anyone using the English spelling; تش (the literal "ch" sound, e.g. loanwords like
+  // "sandwich") is kept as a lower-priority fallback rather than removed.
+  ["ch",["ش","تش"]],
   ["aa",["ا"]], ["ee",["ي",""]], ["ii",["ي",""]], ["oo",["و",""]], ["ou",["و"]], ["ay",["ي","اي"]], ["ai",["اي","ي"]],
   // single characters — most-likely spelling first, alternates after (drives which candidate
   // wins when the suggestion list has to be capped)

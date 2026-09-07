@@ -424,3 +424,24 @@ carry the same build/test/deploy discipline forward.
     - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (same
       98 OK / 11 pre-existing test-authoring misses as round 4, zero new regressions).
     - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
+
+16. **Lebanese-specific Arabizi convention pass (round 6)** — DONE (2026-09-07). User asked
+    generally to "fix the arabizi to lebanese arabic" (a deep pass, not one specific word) —
+    i.e. make sure the engine reflects real Lebanese Arabizi habits rather than the more
+    English-influenced Egyptian/Gulf convention it had been implicitly built around.
+    - **Found and fixed a major gap**: `"ch"` was mapped only to the literal "ch" sound (تش,
+      as in "sandwich"). But Lebanese Arabizi is French-influenced, not English-influenced, so
+      "ch" is overwhelmingly used for ش (as in French "chat") — e.g. "chanta"/شنطة (bag),
+      "chahina"/شاحنة (truck), "chams"/شمس (sun), "chebbek"/شباك (window/screen), "choukolata"/
+      شوكولاتة (chocolate). None of these resolved at all before this fix (confirmed empirically:
+      "chanta" produced garbage "شانا", "chahina" produced nothing). Fixed: `["ch",["ش","تش"]]`
+      — ش first since that's the dominant Lebanese usage, تش kept as a fallback so genuine
+      "ch"-sound loanwords aren't lost. Verified against the real dataset: all of the above now
+      resolve exact.
+    - Checked several other candidate Lebanese/French-influenced patterns empirically (apostrophe
+      for ع, "9" for ق, French "ph"/"au" digraphs) and found no evidence they're needed against
+      this dataset's actual vocabulary — left unchanged rather than adding speculative,
+      unverified mappings (consistent with this project's no-fabrication rule).
+    - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (same
+      98 OK / 11 pre-existing test-authoring misses, zero new regressions from the "ch" change).
+    - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
