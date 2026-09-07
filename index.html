@@ -7246,6 +7246,48 @@ function isLatinish(str){
   return /^[a-zA-Z0-9\s'2-9]+$/.test(str.trim()) && /[a-zA-Z]/.test(str);
 }
 
+/* Advance a set of {str, pos} candidate states by (at least) one input character each,
+   trying EVERY Latin pattern that matches at a candidate's OWN current position — not just
+   the longest one. This matters for genuine two-letter sequences that happen to spell a
+   registered digraph with no vowel between them: e.g. فواكه (fruits) ends in ك+ة, which
+   typed with no vowel ("...kh") is indistinguishable from the digraph "kh"->خ. Trying only
+   the longest match would commit to خ and permanently lose the ك+ه reading; trying every
+   matching pattern spawns both readings as parallel branches, so the real word is still
+   reachable. `guardFn`, when given (used by the dictionary-guided beam), drops any branch
+   that is no longer a valid VOCAB_TRIE prefix, keeping this from blowing up in practice —
+   most of the extra split-branches this creates dead-end immediately. */
+function stepArabiziStates(states, s, maxBeam, guardFn){
+  const next = [];
+  for(const st of states){
+    if(st.pos >= s.length){ next.push(st); continue; }
+    if(s[st.pos] === ' '){
+      const cand = { str: st.str + ' ', pos: st.pos + 1 };
+      if(!guardFn || cand.str === "" || guardFn(cand.str)) next.push(cand);
+      continue;
+    }
+    let matchedAny = false;
+    for(const [lat,alts] of TRANSLIT_ALTS){
+      if(s.substr(st.pos, lat.length) !== lat) continue;
+      matchedAny = true;
+      const uniqAlts = Array.from(new Set(alts));
+      for(const alt of uniqAlts){
+        const cand = { str: st.str + alt, pos: st.pos + lat.length };
+        if(!guardFn || cand.str === "" || guardFn(cand.str)) next.push(cand);
+      }
+    }
+    if(!matchedAny) next.push({ str: st.str, pos: st.pos + 1 }); // skip unknown char (punctuation etc.)
+  }
+  const seen = new Set();
+  const deduped = [];
+  for(const c of next){
+    const key = c.str + "" + c.pos;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(c);
+  }
+  return deduped.length > maxBeam ? deduped.slice(0, maxBeam) : deduped;
+}
+
 /* Beam-search candidate generator: returns an array of plausible full-string Arabic
    transliterations of `input`. Runs TWO beams side by side:
    - `guided`: at every character step, candidates that are no longer a valid PREFIX of any
@@ -7258,6 +7300,9 @@ function isLatinish(str){
    - `beam`: the old unguided beam (capped purely by width), kept as a fallback for words that
      genuinely aren't in VOCAB (e.g. a real Arabic word the dataset just never happens to use) —
      dictionary guidance can't help there, but we still want a best-guess spelling to show.
+   Each candidate tracks its OWN read-position in `input` (rather than one shared cursor for
+   the whole beam) specifically so a digraph match and its single-letter split can both be
+   explored as parallel branches — see stepArabiziStates() above.
    Real dictionary words (guided candidates that are a COMPLETE word, not just a prefix) are
    returned first, so callers that just want "the" answer (candidate[0]) get a verified real
    word whenever one exists. */
@@ -7266,53 +7311,28 @@ function arabiziCandidates(input, maxBeam){
   if(!input) return [];
   const s = input.toLowerCase().trim();
   if(!s) return [];
-  let beam = [""];
-  let guided = [""];
+
+  let beam = [{ str:"", pos:0 }];
+  let guided = [{ str:"", pos:0 }];
   let guidedAlive = true;
-  let i = 0;
-  while(i < s.length){
-    if(s[i] === ' '){
-      beam = beam.map(b => b + ' ');
-      if(guidedAlive) guided = guided.map(b => b + ' ');
-      i++;
-      continue;
+
+  while(beam.some(b => b.pos < s.length) || (guidedAlive && guided.some(g => g.pos < s.length))){
+    if(beam.some(b => b.pos < s.length)) beam = stepArabiziStates(beam, s, maxBeam, null);
+    if(guidedAlive && guided.some(g => g.pos < s.length)){
+      guided = stepArabiziStates(guided, s, maxBeam, trieHasPrefix);
+      if(!guided.length) guidedAlive = false; // no real word reachable this way
     }
-    let matchedPat = null, matchedAlts = null;
-    for(const [lat,alts] of TRANSLIT_ALTS){
-      if(s.substr(i,lat.length) === lat){ matchedPat = lat; matchedAlts = alts; break; }
-    }
-    if(!matchedPat){ i++; continue; } // skip unknown char (punctuation etc.)
-    const uniqAlts = Array.from(new Set(matchedAlts));
-    const newBeam = [];
-    for(const b of beam){
-      for(const alt of uniqAlts) newBeam.push(b + alt);
-    }
-    beam = Array.from(new Set(newBeam));
-    if(beam.length > maxBeam) beam = beam.slice(0, maxBeam);
-    if(guidedAlive){
-      const newGuided = [];
-      for(const b of guided){
-        for(const alt of uniqAlts){
-          const cand = b + alt;
-          if(cand === "" || trieHasPrefix(cand)) newGuided.push(cand);
-        }
-      }
-      const uniqGuided = Array.from(new Set(newGuided));
-      if(uniqGuided.length){
-        guided = uniqGuided.length > maxBeam ? uniqGuided.slice(0, maxBeam) : uniqGuided;
-      } else {
-        guidedAlive = false; // no real word reachable this way — dictionary guidance can't help
-      }
-    }
-    i += matchedPat.length;
   }
+
+  const beamWords = Array.from(new Set(beam.map(b => b.str)));
   if(guidedAlive && guided.length){
-    const fullWords = guided.filter(g => trieHasWord(g));
-    const partials = guided.filter(g => !trieHasWord(g));
-    const merged = Array.from(new Set([...fullWords, ...partials, ...beam]));
+    const guidedWords = Array.from(new Set(guided.map(g => g.str)));
+    const fullWords = guidedWords.filter(g => trieHasWord(g));
+    const partials = guidedWords.filter(g => !trieHasWord(g));
+    const merged = Array.from(new Set([...fullWords, ...partials, ...beamWords]));
     return merged.length > maxBeam ? merged.slice(0, maxBeam) : merged;
   }
-  return beam;
+  return beamWords.length > maxBeam ? beamWords.slice(0, maxBeam) : beamWords;
 }
 
 /* Single best-guess transliteration (candidate [0] of the beam) — kept for callers that just
