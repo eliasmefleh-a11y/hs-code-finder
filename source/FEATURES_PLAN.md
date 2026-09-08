@@ -557,3 +557,33 @@ carry the same build/test/deploy discipline forward.
       11 pre-existing test-authoring misses, unchanged) — zero regressions from all round-8
       additions.
     - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
+
+19. **WhatsApp lead-gen CTA (round 9) — monetization** — DONE (2026-09-08). Separately from the
+    search/vocabulary work, the user asked how to make the app profitable. Beyond AdSense (being
+    set up on a custom subdomain, `hscode.freightsolutionsal.com`, tracked outside this file), the
+    highest-leverage move identified was turning the tool into a lead funnel for Freight Solutions
+    SAL's own core clearance business — every visitor is, by definition, someone importing or
+    exporting the exact product they just searched.
+    - Pulled the real contact details from freightsolutionsal.com/contact/ rather than
+      guessing: sales line `+961 3 143079` (used here, per the user's choice, over the managing
+      partner's personal line, so a busy tool doesn't bottleneck on one person) and confirmed
+      brand palette already matches the site (dark navy + blue, sampled from the company's own
+      logo, per the CSS comment at the top of `hs_code_finder.html`).
+    - Added a `.wa-cta` block, shown once beneath the results list (not once per card, which
+      would just be repetitive) whenever a search actually returns something — the exact moment
+      someone has their HS code and duty rate and is thinking about the actual shipment. Cleared
+      on empty queries, no-results, and the paywall state.
+    - The WhatsApp message is pre-filled from the top result's own code and description (e.g.
+      "Hi, I found HS code 8471.30 (Portable automatic data processing machines (laptops)) on
+      your HS Code Finder and need help clearing a shipment under it.") via a `wa.me` deep link,
+      so the sales team sees real context instead of a blank "hi".
+    - New function `renderWaCta(topRow)`, called from `renderResults()`; new HTML container
+      `#waCta` placed after `#resultsList` in the Search tab markup; styling reuses the existing
+      `--panel2`/`--accent2`/`--radius` tokens already in the app's palette (`--accent2` is close
+      enough to WhatsApp's own green to read as "go" without introducing an off-brand color).
+    - Verified via Playwright: CTA appears with the correct pre-filled `wa.me` link on a real
+      query, and clears correctly on an empty query, a no-results query, and the paywall state.
+    - Re-verified full 46-case regression suite (46/46) and the 109-case coverage audit (98 OK /
+      11 pre-existing test-authoring misses, unchanged) — this was an additive UI change with no
+      touches to search/scoring logic, and confirmed zero regressions.
+    - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).

@@ -909,6 +909,54 @@
     h1{font-size:1.05rem;}
     .card{flex-wrap:wrap;}
   }
+
+  /* WhatsApp lead CTA — shown once beneath the results list whenever a search actually
+     returns something, since that's the exact moment someone realizes they need to clear
+     the shipment, not just look up its code. --accent2 doubles as a near-match for
+     WhatsApp's own green, so it reads as "go" without breaking the app's own palette. */
+  .wa-cta{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    margin-top:14px;
+    padding:14px 16px;
+    background:var(--panel2);
+    border:1px solid var(--accent2);
+    border-radius:var(--radius);
+  }
+  .wa-cta-icon{
+    flex:none;
+    width:38px;
+    height:38px;
+    border-radius:50%;
+    background:var(--accent2);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:1.15rem;
+  }
+  .wa-cta-text{flex:1; min-width:160px;}
+  .wa-cta-text b{display:block; font-size:0.94rem;}
+  .wa-cta-text span{display:block; color:var(--muted); font-size:0.82rem; margin-top:2px;}
+  .wa-cta-btn{
+    flex:none;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    background:var(--accent2);
+    color:#ffffff;
+    text-decoration:none;
+    font-weight:700;
+    font-size:0.88rem;
+    padding:9px 16px;
+    border-radius:999px;
+    white-space:nowrap;
+  }
+  .wa-cta-btn:hover{ filter:brightness(1.08); }
+  @media (max-width:480px){
+    .wa-cta{flex-wrap:wrap;}
+    .wa-cta-btn{margin-left:52px;}
+  }
 </style>
 </head>
 <body>
@@ -963,6 +1011,7 @@
     </div>
     <div class="result-count" id="resultCount"></div>
     <div id="resultsList"></div>
+    <div id="waCta"></div>
     <div id="paywallBox" style="display:none;"></div>
   </section>
 
@@ -8127,6 +8176,28 @@ function escapeHtml(s){
   return String(s??"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+/* Lead-gen CTA: the app is free to use, but every person who lands on a result is, by
+   definition, someone actively importing or exporting the exact product they just searched —
+   Freight Solutions SAL's own core customer. Shown once beneath the results (not once per
+   card, which would just be noise), pre-filled with the top result's own code and description
+   so the sales team sees context immediately instead of a blank "hi". Number is the sales
+   line from freightsolutionsal.com/contact/, not the managing partner's direct line, so this
+   scales past one person if the tool gets real traffic. */
+function renderWaCta(topRow){
+  const desc = ((currentLang === "ar" ? topRow.ar : (topRow.en || topRow.ar)) || "").trim();
+  const msg = `Hi, I found HS code ${topRow.code}${desc ? ` (${desc})` : ""} on your HS Code Finder and need help clearing a shipment under it.`;
+  const waHref = "https://wa.me/9613143079?text=" + encodeURIComponent(msg);
+  return `
+  <div class="wa-cta">
+    <div class="wa-cta-icon" aria-hidden="true">💬</div>
+    <div class="wa-cta-text">
+      <b>Need help actually clearing this shipment?</b>
+      <span>Freight Solutions SAL handles customs clearance for codes like this every day.</span>
+    </div>
+    <a class="wa-cta-btn" href="${waHref}" target="_blank" rel="noopener">Message us on WhatsApp →</a>
+  </div>`;
+}
+
 /* "Ask AI" shortcut: the app is fully offline/dependency-free by design (no bundled API key, no
    backend), so this doesn't call an AI API directly. Instead it builds a plain-language question
    from the code's own data (description, duty/VAT/tax rates, permit flag if any) and opens it in
@@ -8210,9 +8281,11 @@ function renderResults(){
   const results = runSearch(q, bridgeWords);
   const list = document.getElementById("resultsList");
   const countEl = document.getElementById("resultCount");
+  const waCta = document.getElementById("waCta");
   if(!q.trim()){
     countEl.textContent = `${DATA.length} codes loaded — start typing to search`;
     list.innerHTML = "";
+    if(waCta) waCta.innerHTML = "";
     if(paywallBox) paywallBox.style.display = "none";
     return;
   }
@@ -8226,6 +8299,7 @@ function renderResults(){
   if(!isLifetimeUnlocked() && !alreadyCounted && usage.count >= FREE_WEEKLY_LIMIT){
     countEl.textContent = `Free limit reached`;
     list.innerHTML = "";
+    if(waCta) waCta.innerHTML = "";
     renderPaywall();
     return;
   }
@@ -8234,8 +8308,10 @@ function renderResults(){
   countEl.textContent = `${results.length} result${results.length!==1?'s':''}`;
   if(results.length === 0){
     list.innerHTML = `<div class="empty-state">No matches. Try a different spelling, a broader word, or an HS chapter number.</div>`;
+    if(waCta) waCta.innerHTML = "";
   } else {
     list.innerHTML = results.map(renderCard).join("");
+    if(waCta) waCta.innerHTML = renderWaCta(results[0]);
     if(!isLifetimeUnlocked()){
       registerLookup(queryKey);
       updateUsageBadge();
