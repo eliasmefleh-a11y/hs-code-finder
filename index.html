@@ -7993,6 +7993,16 @@ function expandSynonyms(termLower, matchThreshold){
    hidden — it's still one click away under "other possible matches" for anyone who wants it. */
 const CLASSIFICATION_OVERRIDES = [
   { terms: ["brake pad","brake pads","brake lining","brake linings","تيل الفرامل","بطانة الفرامل","بلاكيت","plaquette"], code: "8708.30" },
+  // "frem"/"freim"/"frein"/"freins" (Lebanese garage slang for "brake", from French "frein")
+  // is already in the general brake/brakes synonym group, but that only gets it a same-tier tie
+  // against several other "brake"-containing headings (brake linings, railway brakes, etc.) —
+  // it was landing on 6813.81 by arbitrary tie-break instead of the general vehicle-brakes
+  // heading. Elias confirmed this should land on the same 87.08 code as plain "brakes".
+  { terms: ["frem","freim","frein","freins"], code: "8708.30" },
+  // "colier frem"/"colier frein" (Lebanese phonetic spelling of French "collier de frein" —
+  // brake caliper) — Elias confirmed this is actively used and should land on the same 87.08
+  // code, same reasoning as plain "frem" above.
+  { terms: ["colier frem","colier frein"], code: "8708.30" },
 ];
 const OVERRIDE_BY_CODE = new Map();
 for(const o of CLASSIFICATION_OVERRIDES){
