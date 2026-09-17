@@ -7979,6 +7979,30 @@ function expandSynonyms(termLower, matchThreshold){
   return Array.from(extra);
 }
 
+/* ============================= CURATED CLASSIFICATION CALLS ============================= */
+/* Some products are textually plausible under more than one real HS heading, and picking the
+   right one is a customs judgment call, not just a word-matching problem — e.g. by the WCO's own
+   Explanatory Note to heading 68.13, brake pads/linings are "friction material" and technically
+   excluded from being classified as a vehicle part under 87.08 even when clearly shaped for one
+   specific car. Elias (Freight Solutions SAL) flagged that Lebanese customs clears brake pads
+   under 87.08.30 (brakes and parts thereof, for motor vehicles) in practice, not 68.13.81 — this
+   app follows the real clearance outcome over the generic textbook rule, since that's the whole
+   point of a tool built by a working customs clearing agent for his own use. Scored just below
+   the per-device "taught word" tier (0) since it's the same kind of deliberate human call, just
+   baked in for everyone instead of taught locally per browser. The other heading is never
+   hidden — it's still one click away under "other possible matches" for anyone who wants it. */
+const CLASSIFICATION_OVERRIDES = [
+  { terms: ["brake pad","brake pads","brake lining","brake linings","تيل الفرامل","بطانة الفرامل","بلاكيت","plaquette"], code: "8708.30" },
+];
+const OVERRIDE_BY_CODE = new Map();
+for(const o of CLASSIFICATION_OVERRIDES){
+  if(!OVERRIDE_BY_CODE.has(o.code)) OVERRIDE_BY_CODE.set(o.code, []);
+  for(const t of o.terms){
+    const isAr = /[؀-ۿ]/.test(t);
+    OVERRIDE_BY_CODE.get(o.code).push({ raw: t, isAr, norm: isAr ? normalizeArabic(t) : normalizeLatin(t) });
+  }
+}
+
 function scoreRow(entry, rawQuery, bridgeWords, syns){
   const q = rawQuery.trim();
   if(!q) return 0;
@@ -7995,6 +8019,18 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
         if(qArabicNorm && (qArabicNorm===t.norm || wordBoundaryIncludes(t.norm, qArabicNorm) || wordBoundaryIncludes(qArabicNorm, t.norm))){ best = Math.max(best, 96); break; }
       } else if(qLower && (qLower===t.norm || t.norm.startsWith(qLower) || qLower.startsWith(t.norm))){
         best = Math.max(best, 96); break;
+      }
+    }
+  }
+
+  // 0.5. Curated classification overrides — see the comment above CLASSIFICATION_OVERRIDES.
+  const override = OVERRIDE_BY_CODE.get(entry.row.code);
+  if(override && override.length){
+    for(const t of override){
+      if(t.isAr){
+        if(qArabicNorm && (qArabicNorm===t.norm || wordBoundaryIncludes(t.norm, qArabicNorm) || wordBoundaryIncludes(qArabicNorm, t.norm))){ best = Math.max(best, 95); break; }
+      } else if(qLower && (qLower===t.norm || t.norm.startsWith(qLower) || qLower.startsWith(t.norm))){
+        best = Math.max(best, 95); break;
       }
     }
   }
