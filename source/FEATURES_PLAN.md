@@ -666,3 +666,33 @@ carry the same build/test/deploy discipline forward.
       correct result is still directly visible in the top 3 / one click away under "other
       matches", so nothing is lost, but it isn't the default top pick in this one case.
     - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
+
+22. **Curated classification override: brake pads → 87.08 (round 12)** — DONE (2026-09-17). Elias
+    reported that "brake pads" was topping 6813.81 (Brake linings and pads, not mounted) when it
+    should top 8708.30 (Brakes and servo-brakes, including parts thereof, for motor vehicles) —
+    the classification Lebanese customs actually clears them under in his real-world practice.
+    - This is a genuine textbook-vs-practice tension worth naming: the WCO's own Explanatory Note
+      to heading 68.13 treats friction material (brake pads/linings) as excluded from Chapter 87
+      even when clearly shaped for one specific vehicle, which is why 6813.81 was previously
+      ranking on top for that search term. Elias's correction reflects actual Lebanese clearance
+      practice, which is exactly the kind of business-specific judgment call this app exists to
+      capture — so the practical answer wins here, not the generic rule.
+    - New `CLASSIFICATION_OVERRIDES` list (term → code) plus `OVERRIDE_BY_CODE`, checked in
+      `scoreRow` as a new tier 0.5 (score 95) — just below the per-device "taught word" tier (96)
+      and above every ranking/matching tier below it. Covers "brake pad(s)", "brake lining(s)",
+      and the Lebanese garage-slang/French-loanword forms (بلاكيت، plaquette، تيل الفرامل، بطانة
+      الفرامل) → 8708.30. This is a deliberate, auditable override baked in for every user (unlike
+      the localStorage-only 🎓 Teach feature, which is per-device), with the same tier-0-style
+      matching logic (exact / prefix / word-boundary) as taught words.
+    - 6813.81 is not hidden or removed from the data — it still appears immediately under "other
+      possible matches" for anyone who wants to double-check it, since the underlying
+      classification tension is real and worth being able to see.
+    - Verified via Playwright: "brake pad", "brake pads", "brake lining", "brake linings",
+      "بلاكيت", "plaquette", "تيل الفرامل", and "بطانة الفرامل" all now top 8708.30. Re-ran the
+      full 150-word vocabulary smoke test, the round 6-9 Arabic dialect regression set, and the
+      milk/cheese grouping and free/unlimited checks from round 11 — all unchanged, zero
+      regressions. "frem" alone (ambiguous general slang for "brake", not specifically "brake
+      pad") was deliberately left off the override list and still tops 6813.81 — Elias's report
+      was specifically about "brake pads," not general "brakes"/"frem," so this wasn't widened
+      beyond what was actually reported.
+    - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
