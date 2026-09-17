@@ -587,3 +587,19 @@ carry the same build/test/deploy discipline forward.
       11 pre-existing test-authoring misses, unchanged) — this was an additive UI change with no
       touches to search/scoring logic, and confirmed zero regressions.
     - Rebuilt into `pwa/`/`pwa_flat/`/`HS_Code_Finder_PWA.zip` (md5-verified).
+
+20. **Removed the paywall — app is fully free and unlimited (round 10)** — DONE (2026-09-17).
+    The user decided against the $3-lifetime-unlock monetization path from round 9's paywall
+    scaffold and asked to make the app free for everyone, with no repeated charge.
+    - `isLifetimeUnlocked()` now unconditionally returns `true`, so the weekly-free-lookup gate
+      in `renderResults()` (`FREE_WEEKLY_LIMIT = 3` check) never trips and `renderPaywall()` is
+      never called — every user gets unlimited lookups with no purchase or license key needed.
+    - Left the rest of the paywall scaffold (usage counting, `VALID_LICENSE_KEYS`, the license
+      key input, the $3 unlock UI) in place but inert, rather than ripping it out, in case a paid
+      tier is wanted again later — re-enabling is a one-line revert of `isLifetimeUnlocked()`.
+    - Updated the usage badge copy from "✨ Lifetime unlocked — unlimited lookups" (implies a
+      purchase) to "✨ Free & unlimited lookups" (accurate now that nothing is being sold).
+    - Verified via Playwright: 9 distinct searches in a row (well past the old 3/week limit) all
+      show the "Free & unlimited" badge and the paywall never appears.
+    - Rebuilt into `pwa/`/`pwa_flat/` (icons/manifest/sw.js copied over from the deployed repo
+      root to match production exactly) and deployed.
