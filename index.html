@@ -8000,20 +8000,18 @@ function runSearch(query, bridgeWords){
 }
 
 /* ============================= FREE TIER / LIFETIME UNLOCK ============================= */
-/* Free plan: 3 lookups a week (counted per distinct search, so refining the same search doesn't
-   burn another one). $3 one-time unlocks unlimited lookups for life.
-   IMPORTANT — this is a client-side-only gate. There is no server here to enforce it, so it is
-   trivially bypassable (clearing site data, or reading VALID_LICENSE_KEYS in the page source
-   resets/unlocks it). It's a working UI/UX scaffold for the purchase flow, not real payment
-   enforcement — wire it to a real payment processor + server-side license check before relying
-   on it for actual revenue. See the delivery notes for how to connect Stripe. */
+/* DISABLED: the app is fully free and unlimited for all users — isLifetimeUnlocked() below
+   always returns true, so the weekly-limit gate in renderResults() never trips and the paywall
+   is never shown. The scaffold (usage counting, license key input, $3 unlock UI) is left in
+   place but inert, in case a paid tier is wanted again later — to re-enable it, revert
+   isLifetimeUnlocked() to check Store as before. */
 const FREE_WEEKLY_LIMIT = 3;
 const LICENSE_STORE_KEY = "hscf_license";
 const USAGE_STORE_KEY = "hscf_usage";
 const VALID_LICENSE_KEYS = ["HSCF-LIFETIME-DEMO"]; // placeholder until real purchase flow is wired up
 
 function isLifetimeUnlocked(){
-  return !!Store.get(LICENSE_STORE_KEY, {}).unlocked;
+  return true; // app is free & unlimited for everyone — see comment above
 }
 function unlockLifetime(key){
   const k = (key||"").trim().toUpperCase();
@@ -8057,7 +8055,7 @@ function updateUsageBadge(){
   if(!badge) return;
   if(isLifetimeUnlocked()){
     badge.className = "usage-badge pro";
-    badge.textContent = "✨ Lifetime unlocked — unlimited lookups";
+    badge.textContent = "✨ Free & unlimited lookups";
     return;
   }
   const left = remainingFreeLookups();
