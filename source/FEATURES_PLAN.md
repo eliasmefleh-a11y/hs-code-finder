@@ -696,3 +696,19 @@ carry the same build/test/deploy discipline forward.
       was specifically about "brake pads," not general "brakes"/"frem," so this wasn't widened
       beyond what was actually reported.
     - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
+
+23. **"frem"/"colier frem" onto 87.08 too (round 13)** — DONE (2026-09-17). Elias followed up on
+    round 12: plain "frem"/"freim"/"frein"/"freins" (Lebanese garage slang for "brake", from
+    French "frein") was still landing on 6813.81 instead of the general vehicle-brakes heading —
+    it's already in the general brake/brakes synonym group, but that only earned it a same-tier
+    tie against several other "brake"-containing headings, decided by arbitrary HS-code order.
+    He also flagged "colier frem"/"colier frein" (Lebanese phonetic spelling of French "collier
+    de frein" — brake caliper) as actively used and needing the same fix.
+    - Added two more `CLASSIFICATION_OVERRIDES` entries — `["frem","freim","frein","freins"]` and
+      `["colier frem","colier frein"]`, both → 8708.30 — same mechanism as round 12's brake-pad
+      override (tier 0.5, score 95).
+    - Verified via Playwright: "frem", "colier frem", and "colier frein" all now top 8708.30,
+      matching plain "brakes"; the round 12 brake-pad results (still correctly on 8708.30) and
+      the full 150-word vocabulary + Arabic dialect + grouping + free/unlimited regression suites
+      all re-checked with zero regressions.
+    - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
