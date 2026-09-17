@@ -957,6 +957,95 @@
     .wa-cta{flex-wrap:wrap;}
     .wa-cta-btn{margin-left:52px;}
   }
+
+  /* Same-heading sub-code groups (round 11): many HS headings split into an 8-digit national
+     tariff line where only the LAST TWO DIGITS differ between otherwise-identical products
+     (e.g. 0401.10.10 vs 0401.10.90) — often with very different duty rates. Rather than listing
+     each as its own full card (noisy, and easy to grab the wrong one without noticing), these
+     are grouped into one card with the shared heading shown once and each specific sub-code
+     offered as an explicit, clearly-labeled option the user must pick — nothing is auto-selected,
+     since guessing wrong here can mean a very different duty bill. */
+  .group-hint{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:0.82rem;
+    color:var(--warn);
+    background:rgba(226,163,61,0.1);
+    border:1px solid rgba(226,163,61,0.35);
+    border-radius:8px;
+    padding:6px 10px;
+    margin:8px 0;
+  }
+  .group-options{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .group-option{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    width:100%;
+    text-align:left;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:9px;
+    padding:9px 11px;
+    color:inherit;
+    font:inherit;
+    cursor:pointer;
+    transition:border-color 0.12s ease;
+  }
+  .group-option:hover{ border-color:var(--accent); }
+  .group-option-suffix{
+    flex:none;
+    font-family:"SF Mono",Consolas,Monaco,monospace;
+    font-weight:700;
+    color:var(--accent);
+    background:rgba(0,133,255,0.14);
+    padding:2px 7px;
+    border-radius:6px;
+    font-size:0.85rem;
+  }
+  .group-option-desc{ flex:1; min-width:0; font-size:0.88rem; line-height:1.35; }
+  .group-option-tax{ flex:none; font-size:0.78rem; color:var(--muted); white-space:nowrap; }
+  .group-back-btn{
+    display:inline-block;
+    margin-top:8px;
+    background:none;
+    border:none;
+    color:var(--accent);
+    font-size:0.82rem;
+    cursor:pointer;
+    padding:0;
+    font:inherit;
+    text-decoration:underline;
+  }
+
+  /* "Other possible matches" (round 11): when a query genuinely matches several DIFFERENT
+     products (e.g. "brakes" could mean car brakes, bicycle brakes, railway brakes, or brake
+     fluid), showing all of them as equal-weight cards buries the one most people mean. The
+     single best-ranked match is now shown prominently by default; the rest stay one click
+     away instead of disappearing, since picking the right classification for an actual
+     shipment is a real compliance decision that shouldn't be made by the search box alone. */
+  .other-matches-toggle{
+    display:block;
+    width:100%;
+    text-align:center;
+    background:var(--panel2);
+    border:1px dashed var(--border);
+    border-radius:10px;
+    padding:10px;
+    margin:10px 0;
+    color:var(--muted);
+    font-size:0.86rem;
+    font-weight:600;
+    cursor:pointer;
+    font:inherit;
+  }
+  .other-matches-toggle:hover{ border-color:var(--accent); color:var(--accent); }
+  .other-matches-list{ margin-top:6px; }
 </style>
 </head>
 <body>
@@ -7347,6 +7436,32 @@ function wordBoundaryIncludes(haystack, needle){
   }
 }
 
+/* Like wordBoundaryIncludes, but returns WHERE the match starts (or -1). Used only as a
+   tie-breaker (see `positionPenalty` in scoreRow): when many different rows all match a query
+   word as a whole word (e.g. "brake" appears, as its own word, in the tariff descriptions for
+   car brakes, bicycle brakes, railway brakes, brake fluid, and brake linings alike), they'd
+   otherwise tie and fall back to arbitrary HS-code order. A term appearing near the START of a
+   row's description is usually that row's actual subject ("Brakes and servo-brakes... for motor
+   vehicles"), while the same term appearing deep in a longer/compound description is usually a
+   related-but-different product enumerated for classification completeness ("...brake fluids
+   and antifreeze fluids"). This never changes WHICH rows match, only their relative order among
+   otherwise-tied results. */
+function wordBoundaryMatchIndex(haystack, needle){
+  if(!needle || !haystack) return -1;
+  try{
+    const esc = needle.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const re = new RegExp('(^|[^\\p{L}\\p{N}])(' + esc + ')([^\\p{L}\\p{N}]|$)', 'iu');
+    const m = re.exec(haystack);
+    return m ? m.index + m[1].length : -1;
+  }catch(e){
+    return haystack.indexOf(needle);
+  }
+}
+function positionPenalty(idx){
+  if(idx < 0) return 0;
+  return Math.min(4, idx / 20); // small nudge, always << the gap between score tiers
+}
+
 /* word-PREFIX test (Unicode-aware) — true when `needle` starts a word in `haystack`,
    e.g. "comput" is a word-prefix of "computer". Used for as-you-type partial-word matches
    WITHOUT allowing mid-word/suffix hits like "mobile" inside "autoMOBILE" (which is a
@@ -7817,12 +7932,24 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
     return best;
   }
 
-  // 2. Direct Arabic text search (substring is fine here — user is typing full words)
+  // 2. Direct Arabic text search. Uses the same Unicode-aware word-boundary check already relied
+  // on for the Arabic bridge/synonym tiers below (tiers 4-5), rather than a raw substring test —
+  // a short query like "بيك" (Bic/pen slang) is a literal substring of unrelated longer words
+  // like "التشبيك" ("...or interlocking..." in an unrelated woodworking-machinery heading), the
+  // exact same "car" inside "macaroni" problem the English tier 3 below already guards against.
   if(qArabicNorm && /[؀-ۿ]/.test(q)){
-    if(entry.arNorm.includes(qArabicNorm)) best = Math.max(best, 90);
+    const arIdx = wordBoundaryMatchIndex(entry.arNorm, qArabicNorm);
+    if(arIdx >= 0) best = Math.max(best, 90 - positionPenalty(arIdx));
     else {
       const sim = fuzzyTokenSimilarity(qArabicNorm, entry.arNorm, entry.arTokens);
-      if(sim >= 0.72) best = Math.max(best, 55 + sim*20);
+      // Capped at 70 (was 75) so an approximate/fuzzy guess can never outrank a deliberately
+      // curated synonym-group hit (tier 5 below, flat 72) — e.g. "غسالات" (washing machines)
+      // was fuzzy-matching "نسالات" (an unrelated wool-waste term, one letter different) and
+      // that accidental collision was scoring AS HIGH AS the correct, human-verified
+      // "washing machine" synonym mapping, sometimes winning on tie-break order alone. The
+      // English fuzzy tier below already caps at 70 for the same reason; this brings the
+      // Arabic tier in line rather than leaving it as the one path fuzzy guessing could win.
+      if(sim >= 0.72) best = Math.max(best, 55 + sim*15);
     }
   }
 
@@ -7835,7 +7962,7 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
     const wb = wordBoundaryIncludes(entry.enNorm, qLower);
     const prefixHit = wordPrefixIncludes(entry.enNorm, qLower);
     if(wb){
-      best = Math.max(best, 85);
+      best = Math.max(best, 85 - positionPenalty(wordBoundaryMatchIndex(entry.enNorm, qLower)));
     } else if(prefixHit && qLower.length >= 4){
       best = Math.max(best, 55); // starts a longer word — as-you-type prefix, lower confidence
     } else if(qLower.length >= 4){
@@ -7880,9 +8007,10 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
   if(syns){
     for(const syn of syns){
       if(/[؀-ۿ]/.test(syn)){
-        if(wordBoundaryIncludes(entry.arNorm, normalizeArabic(syn))) best = Math.max(best, 72);
+        const synAr = normalizeArabic(syn);
+        if(wordBoundaryIncludes(entry.arNorm, synAr)) best = Math.max(best, 72 - positionPenalty(wordBoundaryMatchIndex(entry.arNorm, synAr)));
       } else {
-        if(wordBoundaryIncludes(entry.enNorm, syn)) best = Math.max(best, 72);
+        if(wordBoundaryIncludes(entry.enNorm, syn)) best = Math.max(best, 72 - positionPenalty(wordBoundaryMatchIndex(entry.enNorm, syn)));
       }
     }
   }
@@ -7920,6 +8048,35 @@ function runSearch(query, bridgeWords){
     .sort((a,b)=> b.score - a.score)
     .slice(0, 60);
   return scored.map(x => x.e.row);
+}
+
+/* ============================= RESULT GROUPING (round 11) ============================= */
+/* Two distinct problems this addresses, both about a search returning too many equally-weighted
+   codes for what a person experiences as one question:
+   1. A generic term (e.g. "brakes") can genuinely match several DIFFERENT products across
+      different HS chapters (car brakes, bicycle brakes, railway brakes, brake fluid, brake
+      linings). These are real, different classifications — collapsing them to a single hidden
+      answer risks a wrong customs declaration. So instead the single best-ranked one is shown
+      prominently and the rest stay one click away under "show N other possible matches", rather
+      than either hiding them entirely or listing all of them as equal-weight cards.
+   2. Many headings split into an 8-digit national tariff line where only the LAST TWO DIGITS
+      differ between otherwise-identical products (e.g. 0401.10.10 vs 0401.10.90) — sometimes
+      with very different duty rates. These aren't different products, just sub-classifications
+      of the same one, so they're grouped into a single card with the shared 6-digit heading
+      shown once and each specific sub-code offered as an explicit option to pick — never
+      auto-picked, since guessing wrong there can mean a very different duty bill. */
+function groupFamilies(rows){
+  const map = new Map();
+  const order = [];
+  for(const row of rows){
+    const digits = row.code.replace(/\./g, "");
+    const isEightDigit = digits.length === 8 && row.code.includes(".");
+    // "nnnn.nn" — the shared 6-digit heading a 2-digit national split sits under.
+    const key = isEightDigit ? row.code.slice(0, 7) : row.code;
+    if(!map.has(key)){ map.set(key, []); order.push(key); }
+    map.get(key).push(row);
+  }
+  return order.map(key => ({ key, members: map.get(key) }));
 }
 
 /* ============================= FREE TIER / LIFETIME UNLOCK ============================= */
@@ -8174,6 +8331,68 @@ function escapeHtml(s){
   return String(s??"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+/* Per-search UI state for grouped results (round 11). Reset only when the QUERY TEXT changes
+   (see renderResults), not on every render, so picking a sub-code option or expanding "other
+   matches" survives a re-render triggered by an unrelated action on the same search (favoriting
+   a card, switching language, etc.) instead of collapsing back immediately. */
+let lastGroupedQuery = null;
+let groupPicks = new Map();      // heading key ("nnnn.nn") -> the specific 8-digit code picked
+let otherMatchesExpanded = false;
+
+/* One card for a same-heading sub-code family (e.g. all the 8-digit splits under "0401.10").
+   Nothing is auto-selected: the shared heading is shown once, then every specific sub-code is
+   offered as its own clearly-labeled option (with its own duty/VAT), because these splits often
+   carry very different duty rates for what looks like the same product from the search term
+   alone — picking the wrong one is a real customs-declaration mistake, not just a UI nuisance. */
+function renderGroupCard(group){
+  const members = group.members;
+  const first = members[0];
+  const allSameEn = members.every(m => (m.en||"") === (first.en||""));
+  const arParent = (first.ar||"").split("→")[0].trim();
+  return `
+  <div class="card group-card" data-group="${escapeHtml(group.key)}">
+    <div class="card-icon" title="Chapter ${escapeHtml(first.code.slice(0,2))} category">${chapterIcon(first.code)}</div>
+    <div class="code" title="${members.length} sub-codes under this heading">${escapeHtml(group.key)}.—</div>
+    <div class="body">
+      <div class="desc-en">${escapeHtml(allSameEn ? (first.en || arParent) : arParent)}</div>
+      <div class="group-hint">⚠️ This heading has ${members.length} sub-codes${members.some(m=>m.duty!==members[0].duty) ? " with different duty rates" : ""} — pick the one that matches your shipment.</div>
+      <div class="group-options">
+        ${members.map(m => {
+          const suffix = m.code.slice(group.key.length + 1);
+          // Strip the tariff book's own leading "---" bullet markers (an indentation convention
+          // used throughout the source data for sub-items) so the option label reads cleanly.
+          const arTail = (m.ar||"").split("→")[1]?.trim().replace(/^-+\s*/, "") || "";
+          const label = (!allSameEn && m.en) ? m.en : (arTail || m.en || "");
+          const dutyBit = m.duty !== "" && m.duty !== undefined ? `Duty ${escapeHtml(m.duty)}%` : "";
+          const vatBit = m.vat !== "" && m.vat !== undefined ? `VAT ${escapeHtml(m.vat)}%` : "";
+          return `
+          <button type="button" class="group-option" data-action="group-pick" data-group="${escapeHtml(group.key)}" data-code="${escapeHtml(m.code)}">
+            <span class="group-option-suffix">.${escapeHtml(suffix)}</span>
+            <span class="group-option-desc">${escapeHtml(label)}</span>
+            <span class="group-option-tax">${[dutyBit, vatBit].filter(Boolean).join(" · ")}</span>
+          </button>`;
+        }).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* Renders one "slot" in the results list: a plain card for an ungrouped match, the sub-code
+   picker for a family with more than one member, or (once a specific sub-code has been picked)
+   the normal full detail card for that exact code plus a link back to the other options. */
+function renderResultGroup(group){
+  if(group.members.length === 1) return renderCard(group.members[0]);
+  const picked = groupPicks.get(group.key);
+  if(picked){
+    const row = findByCode(picked);
+    if(row){
+      return renderCard(row) +
+        `<button type="button" class="group-back-btn" data-action="group-back" data-group="${escapeHtml(group.key)}">← See all ${group.members.length} sub-codes under ${escapeHtml(group.key)}</button>`;
+    }
+  }
+  return renderGroupCard(group);
+}
+
 /* Lead-gen CTA: the app is free to use, but every person who lands on a result is, by
    definition, someone actively importing or exporting the exact product they just searched —
    Freight Solutions SAL's own core customer. Shown once beneath the results (not once per
@@ -8308,8 +8527,29 @@ function renderResults(){
     list.innerHTML = `<div class="empty-state">No matches. Try a different spelling, a broader word, or an HS chapter number.</div>`;
     if(waCta) waCta.innerHTML = "";
   } else {
-    list.innerHTML = results.map(renderCard).join("");
-    if(waCta) waCta.innerHTML = renderWaCta(results[0]);
+    // Group same-heading sub-codes and reset the picked-option/expanded-others state only when
+    // the query itself changed — see the comment on groupPicks/otherMatchesExpanded above for why.
+    if(queryKey !== lastGroupedQuery){
+      groupPicks = new Map();
+      otherMatchesExpanded = false;
+      lastGroupedQuery = queryKey;
+    }
+    const groups = groupFamilies(results);
+    const topGroup = groups[0];
+    const restGroups = groups.slice(1);
+    let html = renderResultGroup(topGroup);
+    if(restGroups.length){
+      const label = otherMatchesExpanded
+        ? "▾ Hide other possible matches"
+        : `▸ Show ${restGroups.length} other possible match${restGroups.length!==1?"es":""}`;
+      html += `<button type="button" class="other-matches-toggle" data-action="toggle-other">${label}</button>`;
+      html += `<div class="other-matches-list"${otherMatchesExpanded ? "" : ' style="display:none;"'}>${restGroups.map(renderResultGroup).join("")}</div>`;
+    }
+    list.innerHTML = html;
+    // The lead-gen CTA and the free-tier usage counter both key off the single most relevant
+    // match (topGroup's first/representative row), same as before grouping existed.
+    const topRow = groupPicks.get(topGroup.key) ? findByCode(groupPicks.get(topGroup.key)) || topGroup.members[0] : topGroup.members[0];
+    if(waCta) waCta.innerHTML = renderWaCta(topRow);
     if(!isLifetimeUnlocked()){
       registerLookup(queryKey);
       updateUsageBadge();
@@ -8392,7 +8632,13 @@ document.getElementById("resultsList").addEventListener("click", e => {
   const teachBtn = e.target.closest('[data-action="teach"]');
   const calcBtn = e.target.closest('[data-action="calc"]');
   const aiBtn = e.target.closest('[data-action="ai"]');
-  const codeEl = e.target.closest(".code");
+  const groupPickBtn = e.target.closest('[data-action="group-pick"]');
+  const groupBackBtn = e.target.closest('[data-action="group-back"]');
+  const otherToggleBtn = e.target.closest('[data-action="toggle-other"]');
+  // The group-heading "code" (e.g. "0401.10.—") isn't a real, usable HS code on its own —
+  // it's a placeholder until one of the specific sub-codes below it is picked — so it's
+  // excluded from the generic click-to-copy-a-code behavior below.
+  const codeEl = e.target.closest(".card:not(.group-card) .code");
   if(favBtn){
     toggleFavorite(favBtn.dataset.code);
     renderResults();
@@ -8406,6 +8652,15 @@ document.getElementById("resultsList").addEventListener("click", e => {
   } else if(aiBtn){
     openAskAI(aiBtn.dataset.code);
     flashStatus(aiBtn, "Opened + copied");
+  } else if(groupPickBtn){
+    groupPicks.set(groupPickBtn.dataset.group, groupPickBtn.dataset.code);
+    renderResults();
+  } else if(groupBackBtn){
+    groupPicks.delete(groupBackBtn.dataset.group);
+    renderResults();
+  } else if(otherToggleBtn){
+    otherMatchesExpanded = !otherMatchesExpanded;
+    renderResults();
   } else if(codeEl){
     navigator.clipboard?.writeText(codeEl.textContent.trim()).catch(()=>{});
     flashStatus(codeEl, "Copied");

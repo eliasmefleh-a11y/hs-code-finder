@@ -603,3 +603,66 @@ carry the same build/test/deploy discipline forward.
       show the "Free & unlimited" badge and the paywall never appears.
     - Rebuilt into `pwa/`/`pwa_flat/` (icons/manifest/sw.js copied over from the deployed repo
       root to match production exactly) and deployed.
+
+21. **One clear answer instead of a wall of results (round 11)** — DONE (2026-09-17). The user
+    reported that a search like "brakes" or "frem" returned many results instead of one clear
+    code, and separately that headings which split into an 8-digit national tariff line (last 2
+    digits only) should offer those as "options" under one item rather than as separate results.
+    Both were real, verifiable problems, investigated with Playwright before writing any fix:
+    - **Ranking**: `scoreRow`'s three tiers that can produce many-way ties on a common noun
+      (direct Arabic substring, direct English word-boundary, synonym expansion) now break ties
+      by how early the matched term appears in the row's own description — a term at the START
+      of a heading is usually that heading's actual subject ("Brakes and servo-brakes... for
+      motor vehicles"), while the same term buried in a longer/compound description is usually a
+      related-but-different product enumerated for completeness ("...brake fluids and antifreeze
+      fluids"). New `wordBoundaryMatchIndex()` + `positionPenalty()` (capped at 4 points, always
+      far inside each tier's gap to the next, so this only reorders existing ties, never changes
+      which rows match or crosses a tier boundary). "brakes" and "فرامل" now correctly lead with
+      8708.30 (motor vehicle brakes) instead of an arbitrary HS-code-order pick.
+    - **Two pre-existing bugs surfaced by this same investigation, fixed as part of it** (both
+      predate this round, unrelated to the paywall-removal work; found because promoting a "top
+      match" makes ranking bugs far more visible than they were buried in a 15-card list):
+      (a) the Arabic fuzzy-similarity tier could score as high as 75, occasionally beating the
+      deliberately-curated synonym tier (flat 72) — "غسالات" (washing machines) was fuzzy-matching
+      an unrelated wool-waste term ("نسالات", one letter different) as its #1 result. Capped at
+      70, matching the English fuzzy tier's existing safe range, so approximate guessing can
+      never outrank a human-verified synonym mapping. (b) the direct-Arabic-text tier used a raw
+      substring test with no word-boundary protection (unlike English tier 3, which already
+      explicitly guards against "car" inside "macaroni") — "بيك" (Bic/pen slang, 3 letters) was
+      matching as a literal substring of "التشبيك" ("...interlocking...", unrelated woodworking
+      machinery) and outranking the real pen results. Switched to the same `wordBoundaryIncludes`
+      already used successfully for the Arabic bridge/synonym tiers.
+    - **Grouping**: new `groupFamilies()` collapses 8-digit codes sharing the same 6-digit heading
+      (e.g. 0401.10.10 / 0401.10.90) into ONE card (`renderGroupCard`) showing the shared heading
+      once, with each specific sub-code offered as an explicit, clearly-labeled option (its own
+      duty/VAT shown right on the option — e.g. milk's 0401.10 split is 70% duty vs 5% duty,
+      not a cosmetic difference) that the user must click to select — nothing is auto-picked,
+      since guessing wrong on one of these is a real, different customs bill, not a UI nuisance.
+      A "← see all options" link returns from a picked code back to the picker. Ungrouped
+      singleton results render exactly as before (`renderCard`), so this only changes rendering
+      for queries that actually hit an 8-digit family split.
+    - **Prominence**: for queries that genuinely match several DIFFERENT products across
+      different headings (car brakes vs bicycle brakes vs brake fluid — real, different
+      classifications, not a data quirk), the single best-ranked match/group now renders
+      prominently by default, with the rest available one click away under "▸ Show N other
+      possible matches" (collapsed by default, state resets when the query text changes but
+      survives an unrelated re-render like favoriting a card). This satisfies "give me one code"
+      for the default view without silently hiding a legitimate alternate classification, which
+      would risk a wrong customs declaration if the top-ranked pick weren't the right one for a
+      specific shipment.
+    - Verified via Playwright: all 150 SYNONYM_GROUPS entries searched with zero JS errors; the
+      full round 6-9 Arabic dialect regression set (تلفاز، كنبة، كنب، قمصان، مفتاح، مفاتيح، كرة
+      قدم، بيك، قلم، اقلام، أقلام، فرامل، تيلفزيون، موبايل، جبنة، سيارة) re-checked with correct
+      top matches; milk/cheese/butter/yogurt grouping behavior checked directly (option picking,
+      "back to options", and "show other matches" toggle all confirmed working); per-search
+      timing checked (15-120ms per keystroke on the full 5,379-row dataset, no regression).
+    - One known residual limitation, deliberately not chased further (consistent with this
+      project's established posture — see item 18 — of documenting rather than endlessly
+      hand-tuning individual collisions): "موبايل" (mobile phone) currently ties 8517.12 (Mobile
+      telephones) against 8426.12 (Mobile lifting frames) and 8705.20 (Mobile drilling derricks)
+      at the exact same word-boundary position (0) in each heading's own description, since all
+      three genuinely start their heading with the word "Mobile" — a real word-sense ambiguity
+      (adjective "mobile/portable" vs. the phone), not a boundary or fuzzy-matching defect. The
+      correct result is still directly visible in the top 3 / one click away under "other
+      matches", so nothing is lost, but it isn't the default top pick in this one case.
+    - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
