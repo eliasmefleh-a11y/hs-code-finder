@@ -7525,18 +7525,112 @@ function wordBoundaryIncludes(haystack, needle){
    otherwise-tied results. */
 function wordBoundaryMatchIndex(haystack, needle){
   if(!needle || !haystack) return -1;
+  const re = buildWordBoundaryRegex(needle);
+  if(!re) return haystack.indexOf(needle);
+  return wordBoundaryMatchIndexRe(haystack, re);
+}
+/* Builds the same word-boundary RegExp `wordBoundaryMatchIndex` uses internally, but as a
+   reusable object — needed because round 14's per-PHRASE matching (see "QUERY-SPECIFICITY
+   MATCHING" below) calls this once per phrase per DATA row instead of once per row, and
+   `new RegExp(...)` is by far the most expensive part of a match check. The needle (the query,
+   or one synonym) is the same across all ~5,400 rows and all their phrases in a given search, so
+   the regex is built ONCE per needle (in runSearch's `precomputed`, see there) and reused via
+   `wordBoundaryMatchIndexRe` for every row/phrase instead of being rebuilt from scratch each time. */
+function buildWordBoundaryRegex(needle){
+  if(!needle) return null;
   try{
     const esc = needle.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    const re = new RegExp('(^|[^\\p{L}\\p{N}])(' + esc + ')([^\\p{L}\\p{N}]|$)', 'iu');
-    const m = re.exec(haystack);
-    return m ? m.index + m[1].length : -1;
+    return new RegExp('(^|[^\\p{L}\\p{N}])(' + esc + ')([^\\p{L}\\p{N}]|$)', 'iu');
   }catch(e){
-    return haystack.indexOf(needle);
+    return null;
   }
+}
+function wordBoundaryMatchIndexRe(haystack, re){
+  if(!re || !haystack) return -1;
+  const m = re.exec(haystack);
+  return m ? m.index + m[1].length : -1;
 }
 function positionPenalty(idx){
   if(idx < 0) return 0;
   return Math.min(4, idx / 20); // small nudge, always << the gap between score tiers
+}
+
+/* ============================= QUERY-SPECIFICITY MATCHING (round 14) ============================= */
+/* One word should answer one product, and a longer phrase should answer that MORE SPECIFIC
+   product — not the other way around. Before this, a one-word query like "car" and a two-word
+   query like "car radio" or "car brakes" all scored identically (tier 2/3/5's word-boundary check
+   only asked "does this word appear here", with no notion of HOW SPECIFIC the surrounding phrase
+   is), so "car" could tie with (and sometimes out-rank, on arbitrary position tie-break) entries
+   that are actually about car radios or car brakes, not cars themselves. The same shape of bug
+   recurs everywhere in the tariff data: "beef" vs "beef carcass"/"beef tongue"/"beef liver",
+   "milk" vs "milk powder"/"milk fat", "fish" vs "fish meal"/"fish roe", "chicken" vs "chicken
+   pieces", etc — a short generic word is a legitimate whole-word match INSIDE a more specific
+   compound term describing a different product.
+   The fix: rather than word-boundary-matching against one giant blob of description+keywords
+   (which has no notion of phrase boundaries), each row is pre-split in buildIndex into a list of
+   discrete PHRASES — the curated keyword list's comma-separated entries (each already a
+   deliberately concise, single concept, e.g. kw="brakes, car brakes, brake parts" -> three
+   phrases) plus the official description text as one further (usually long) phrase. Matching is
+   then done per-phrase: a query is scored against whichever phrase it matches, and the penalty is
+   based on THAT PHRASE's own word count vs the query's — so "car" against the phrase "car"
+   (from "car,automobile") pays no penalty, while "car" against the phrase "car radio" pays a
+   one-extra-word penalty, and "car" only findable deep in a long formal description (e.g. buried
+   inside "...car-coats, capes and cloaks...") pays a much larger one. A query that matches a
+   phrase EXACTLY (same word count) always pays no penalty — this is what lets a two-word query
+   like "car radio" still win its own more specific product. Word-splitting treats a hyphen the
+   same as a space (so "car-coats" counts as the two-part compound "car"+"coats", not one word),
+   which is what keeps a hyphenated compound from masquerading as an exact single-word match.
+   Penalized matches are floored above 0, not hidden — they're still legitimate related matches
+   worth surfacing under "other possible matches". */
+function wordUnits(str){
+  return (str||"").split(/[\s\-]+/).filter(Boolean);
+}
+function phraseWordCount(str){
+  return wordUnits(str).length;
+}
+function splitKwPhrases(kw){
+  if(!kw) return [];
+  return kw.split(",").map(s=>s.trim()).filter(Boolean);
+}
+/* Builds the phrase list for one row in one language: the official description text as a single
+   (often long) phrase, plus each curated keyword-list entry that's actually in that language as
+   its own short phrase. Mixed-language kw lists are rare in this dataset but are handled
+   correctly by filtering on script per phrase rather than per whole kw string. */
+function buildPhraseList(mainText, kw, wantArabic){
+  const normFn = wantArabic ? normalizeArabic : normalizeLatin;
+  const list = [];
+  const mainNorm = normFn(mainText || "");
+  if(mainNorm) list.push({ norm: mainNorm, words: phraseWordCount(mainNorm) });
+  for(const raw of splitKwPhrases(kw)){
+    const isArPart = /[؀-ۿ]/.test(raw);
+    if(isArPart !== wantArabic) continue;
+    const n = normFn(raw);
+    if(n) list.push({ norm: n, words: phraseWordCount(n) });
+  }
+  return list;
+}
+/* Scores `needleNorm` against the best-matching phrase in `phrases` (already normalized in the
+   same language). Returns -1 if no phrase contains it as a whole word. `needleWords` and
+   `needleRegex` are the needle's own word count and precompiled word-boundary regex — both
+   passed in precomputed (see scoreRow/runSearch) since this runs once per DATA row PER PHRASE
+   per search and the needle itself doesn't change row to row; recomputing either on every row
+   would be the exact "wasted work repeated thousands of times" pattern already called out for
+   `syns` below (rebuilding the regex from scratch per phrase per row was the actual cost — see
+   buildWordBoundaryRegex's comment). */
+function bestPhraseMatchScore(phrases, needleNorm, baseScore, needleWords, needleRegex){
+  if(!needleNorm || !phrases || !phrases.length) return -1;
+  if(needleWords == null) needleWords = phraseWordCount(needleNorm);
+  const re = needleRegex || buildWordBoundaryRegex(needleNorm);
+  if(!re) return -1;
+  let best = -1;
+  for(const ph of phrases){
+    const idx = wordBoundaryMatchIndexRe(ph.norm, re);
+    if(idx < 0) continue;
+    const extra = Math.max(0, ph.words - needleWords);
+    const score = Math.max(10, baseScore - positionPenalty(idx) - Math.min(65, extra * 15));
+    if(score > best) best = score;
+  }
+  return best;
 }
 
 /* word-PREFIX test (Unicode-aware) — true when `needle` starts a word in `haystack`,
@@ -7741,6 +7835,11 @@ function buildIndex(){
       // Precomputed once here instead of on every search — see fuzzyTokenSimilarity's comment.
       enTokens: enNorm.split(/[^\p{L}\p{N}]+/u).filter(t=>t.length>=2),
       arTokens: arNorm.split(/[^\p{L}\p{N}]+/u).filter(t=>t.length>=2),
+      // See "QUERY-SPECIFICITY MATCHING" (above wordUnits/buildPhraseList): discrete phrases
+      // (description + each curated keyword-list entry) used so a query's word count can be
+      // compared against the SPECIFIC phrase it matched, not a blob with no phrase boundaries.
+      enPhrases: buildPhraseList(row.en, row.kw, false),
+      arPhrases: buildPhraseList(row.ar, row.kw, true),
     };
   });
   buildVocabIndex();
@@ -8013,11 +8112,21 @@ for(const o of CLASSIFICATION_OVERRIDES){
   }
 }
 
-function scoreRow(entry, rawQuery, bridgeWords, syns){
+function scoreRow(entry, rawQuery, bridgeWords, syns, precomputed){
   const q = rawQuery.trim();
   if(!q) return 0;
   const qLower = normalizeLatin(q);
   const qArabicNorm = normalizeArabic(q);
+  // `precomputed` carries per-search values that don't change row to row (query/syn word
+  // counts and precompiled word-boundary regexes) — see bestPhraseMatchScore's comment. Falls
+  // back to computing them here so this function still works standalone (e.g. if ever called
+  // without runSearch's precomputation).
+  const qWords = precomputed ? precomputed.qWords : phraseWordCount(qLower);
+  const qWordsAr = precomputed ? precomputed.qWordsAr : phraseWordCount(qArabicNorm);
+  const qLowerRegex = precomputed ? precomputed.qLowerRegex : buildWordBoundaryRegex(qLower);
+  const qArabicRegex = precomputed ? precomputed.qArabicRegex : buildWordBoundaryRegex(qArabicNorm);
+  const synWordCounts = precomputed && precomputed.synWordCounts;
+  const synRegexes = precomputed && precomputed.synRegexes;
   let best = 0;
 
   // 0. Taught words — words a person explicitly told the app mean this exact code (via the
@@ -8061,8 +8170,14 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
   // like "التشبيك" ("...or interlocking..." in an unrelated woodworking-machinery heading), the
   // exact same "car" inside "macaroni" problem the English tier 3 below already guards against.
   if(qArabicNorm && /[؀-ۿ]/.test(q)){
-    const arIdx = wordBoundaryMatchIndex(entry.arNorm, qArabicNorm);
-    if(arIdx >= 0) best = Math.max(best, 90 - positionPenalty(arIdx));
+    // See "QUERY-SPECIFICITY MATCHING" above wordUnits/buildPhraseList: matched per discrete
+    // phrase (not the whole blob) so a short query landing inside a longer, more specific
+    // phrase (e.g. "فرامل" inside "بطانة الفرامل") is demoted below an entry where it's the
+    // whole/primary term, but never hidden entirely.
+    const arPhraseScore = bestPhraseMatchScore(entry.arPhrases, qArabicNorm, 90, qWordsAr, qArabicRegex);
+    if(arPhraseScore >= 0){
+      best = Math.max(best, arPhraseScore);
+    }
     else {
       const sim = fuzzyTokenSimilarity(qArabicNorm, entry.arNorm, entry.arTokens);
       // Capped at 70 (was 75) so an approximate/fuzzy guess can never outrank a deliberately
@@ -8082,10 +8197,15 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
   // so it doesn't tie with — and outrank — genuine matches. Short queries (<=3 chars) require
   // a word boundary outright, since "car" inside "cardigans"/"macaroni" is pure noise.
   if(qLower && !/[؀-ۿ]/.test(qLower)){
-    const wb = wordBoundaryIncludes(entry.enNorm, qLower);
+    // See "QUERY-SPECIFICITY MATCHING" above wordUnits/buildPhraseList: matched per discrete
+    // phrase (not the whole blob) so "car" landing inside the more specific compound phrase
+    // "car radio" (or "beef" inside "beef carcass", or even inside a hyphenated compound like
+    // "car-coats", etc.) is demoted below an entry where the query is the whole/primary term,
+    // but never hidden entirely.
+    const enPhraseScore = bestPhraseMatchScore(entry.enPhrases, qLower, 85, qWords, qLowerRegex);
     const prefixHit = wordPrefixIncludes(entry.enNorm, qLower);
-    if(wb){
-      best = Math.max(best, 85 - positionPenalty(wordBoundaryMatchIndex(entry.enNorm, qLower)));
+    if(enPhraseScore >= 0){
+      best = Math.max(best, enPhraseScore);
     } else if(prefixHit && qLower.length >= 4){
       best = Math.max(best, 55); // starts a longer word — as-you-type prefix, lower confidence
     } else if(qLower.length >= 4){
@@ -8129,11 +8249,15 @@ function scoreRow(entry, rawQuery, bridgeWords, syns){
   // feeling sluggish/laggy while typing.
   if(syns){
     for(const syn of syns){
+      const cachedWords = synWordCounts ? synWordCounts.get(syn) : null;
+      const cachedRegex = synRegexes ? synRegexes.get(syn) : null;
       if(/[؀-ۿ]/.test(syn)){
         const synAr = normalizeArabic(syn);
-        if(wordBoundaryIncludes(entry.arNorm, synAr)) best = Math.max(best, 72 - positionPenalty(wordBoundaryMatchIndex(entry.arNorm, synAr)));
+        const s = bestPhraseMatchScore(entry.arPhrases, synAr, 72, cachedWords, cachedRegex);
+        if(s >= 0) best = Math.max(best, s);
       } else {
-        if(wordBoundaryIncludes(entry.enNorm, syn)) best = Math.max(best, 72 - positionPenalty(wordBoundaryMatchIndex(entry.enNorm, syn)));
+        const s = bestPhraseMatchScore(entry.enPhrases, syn, 72, cachedWords, cachedRegex);
+        if(s >= 0) best = Math.max(best, s);
       }
     }
   }
@@ -8166,7 +8290,27 @@ function runSearch(query, bridgeWords){
   const syns = new Set();
   for(const key of synKeys) expandSynonyms(key, 1).forEach(s => syns.add(s));
 
-  const scored = INDEX.map(e => ({e, score: scoreRow(e, query, bridgeWords, syns)}))
+  // Precomputed once per search, not once per DATA row — see bestPhraseMatchScore's comment
+  // on `needleWords` for why this matters for typing responsiveness (scoreRow runs once per
+  // row, thousands of times per search).
+  // Regexes precompiled once here too (see buildWordBoundaryRegex's comment) — this is the
+  // actual expensive part bestPhraseMatchScore used to redo per phrase per row.
+  const precomputed = {
+    qWords: qLower ? phraseWordCount(qLower) : 0,
+    qWordsAr: qArabicNorm ? phraseWordCount(qArabicNorm) : 0,
+    qLowerRegex: qLower ? buildWordBoundaryRegex(qLower) : null,
+    qArabicRegex: qArabicNorm ? buildWordBoundaryRegex(qArabicNorm) : null,
+    synWordCounts: new Map(),
+    synRegexes: new Map(),
+  };
+  for(const syn of syns){
+    const isAr = /[؀-ۿ]/.test(syn);
+    const needle = isAr ? normalizeArabic(syn) : syn;
+    precomputed.synWordCounts.set(syn, phraseWordCount(needle));
+    precomputed.synRegexes.set(syn, buildWordBoundaryRegex(needle));
+  }
+
+  const scored = INDEX.map(e => ({e, score: scoreRow(e, query, bridgeWords, syns, precomputed)}))
     .filter(x => x.score > 0)
     .sort((a,b)=> b.score - a.score)
     .slice(0, 60);
