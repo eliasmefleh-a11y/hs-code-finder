@@ -712,3 +712,51 @@ carry the same build/test/deploy discipline forward.
       the full 150-word vocabulary + Arabic dialect + grouping + free/unlimited regression suites
       all re-checked with zero regressions.
     - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
+
+24. **One word -> one specific product; a longer phrase -> the MORE specific product it names,
+    across the whole tariff database (round 14)** — DONE (2026-09-18). Elias's report: "if i say
+    car... i shouldn't get car radio or car brakes... if i say car radio give me hs code for car
+    radio." This wasn't a one-off word problem like rounds 12-13 — it's a structural gap in the
+    scoring itself, and it recurs everywhere in the data: "beef" was tying with "beef carcass" /
+    "beef tongue" / "beef liver", "milk" with "milk powder" / "milk fat", "fish" with "fish meal" /
+    "fish roe", "chicken" with "chicken pieces", etc. Root cause: tiers 2/3/5 in `scoreRow`
+    word-boundary-matched a query against each row's ENTIRE description+keywords text as one
+    blob, with no notion of phrase boundaries — so a one-word query like "car" scored identically
+    whether it was the row's whole subject or just one word buried inside a longer, more specific
+    compound term like "car radio" or "car brakes" naming a *different* product. Ties were then
+    broken by arbitrary HS-code/array order, which is why car radio/car brakes sometimes won.
+    - Added a phrase-aware matching layer ("QUERY-SPECIFICITY MATCHING", above `positionPenalty`
+      in the source): `buildIndex` now pre-splits each row into discrete phrases — the official
+      description as one (usually long) phrase, plus each comma-separated entry in the curated
+      keyword list as its own short phrase (e.g. kw="brakes, car brakes, brake parts" -> three
+      phrases: "brakes", "car brakes", "brake parts"). A query is scored against whichever phrase
+      it actually matches, and the score is penalized by how many words that phrase has BEYOND
+      what the query asked for (`bestPhraseMatchScore`) — an exact word-count match (e.g. "car
+      radio" against the phrase "car radio") pays zero penalty, so a longer, more specific query
+      still correctly wins its own more specific product. Word-splitting treats a hyphen the same
+      as a space (`wordUnits`), so a hyphenated compound like "car-coats" correctly counts as the
+      two-part phrase "car"+"coats" rather than masquerading as an exact one-word match for "car".
+      Penalized matches are floored above 0, never hidden — they still surface under "other
+      possible matches" for the genuinely related-but-different product. Applied consistently to
+      tier 2 (Arabic direct), tier 3 (English/Latin direct), and tier 5 (curated synonym
+      expansion) — the three tiers that were doing blob-level word-boundary matching.
+    - Performance: per-phrase matching meant `wordBoundaryMatchIndex`'s regex was being rebuilt
+      from scratch far more often (once per phrase per row instead of once per row), measured as
+      a real ~40-60% slowdown on live per-keystroke search. Fixed by precompiling the
+      word-boundary regex ONCE PER SEARCH per distinct needle (the query itself, and each
+      expanded synonym) in `runSearch`'s `precomputed` object — the same "compute once per
+      search, not once per the ~5,400 DATA rows" principle already used for `syns` and now also
+      for needle word counts — and reusing that compiled regex object across every row and every
+      phrase (`buildWordBoundaryRegex` / `wordBoundaryMatchIndexRe`). End result is faster than
+      the ORIGINAL pre-round-14 baseline (e.g. "brakes": ~145ms -> ~101ms; "فرامل": ~127ms ->
+      ~95ms, measured via the existing `runSearch` perf harness), not just recovered.
+    - Verified via Playwright against real data pairs pulled directly from the tariff dataset:
+      "car" now tops an actual 8703.xx passenger-car code (car radio/car brakes correctly demoted
+      to "other possible matches"); "car radio" still tops 8527.2x; "car brakes" still tops
+      8708.30; "beef"/"beef carcass"/"beef liver", "milk"/"milk powder", "fish"/"fish meal",
+      "chicken"/"chicken pieces", "pork"/"pork liver", and "bone"/"bone meal" all correctly
+      resolve the generic word to the generic product and the compound phrase to its own specific
+      product. Re-ran the full 150-word vocabulary smoke test, the Arabic dialect regression set,
+      the milk/TV/phone/key grouping + prominence checks, and the round 12/13 brake-pad/frem/
+      colier-frem override checks — all unchanged, zero regressions.
+    - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
