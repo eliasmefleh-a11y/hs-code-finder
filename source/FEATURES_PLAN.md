@@ -760,3 +760,71 @@ carry the same build/test/deploy discipline forward.
       the milk/TV/phone/key grouping + prominence checks, and the round 12/13 brake-pad/frem/
       colier-frem override checks — all unchanged, zero regressions.
     - Rebuilt into `pwa/`/`pwa_flat/` and deployed.
+
+25. **Three client-facing additions Elias asked to have built (round 15)** — DONE (2026-09-25).
+    Elias asked what to add to the app before handing it to clients as an added-value extension
+    of his customs-clearing service. A review of the app as it actually stands today (branding,
+    the WhatsApp lead-gen CTA pre-filled with the top result, the legal disclaimer, and the full
+    landed-cost calculator) showed those were already built and working well, so — per Elias's
+    explicit choice — only the three genuinely-missing pieces were added, and the existing
+    features were deliberately left untouched:
+    - **Zero-result "can't find it?" WhatsApp CTA.** Previously a plain-text "No matches" empty
+      state gave up on a search with nothing else. `renderNoMatchCta(query)` (next to the
+      existing `renderWaCta`, reusing the same `.wa-cta` styling) now fills the `#waCta` slot with
+      a one-tap `wa.me/9613143079` link pre-filled with the exact text the person searched, so a
+      dead-end search still turns into a lead for Elias instead of a shrug.
+    - **Rich "share this result" button.** A new 📤 icon button next to the existing ☆ / ⧉ / 🎓 /
+      🧮 / 🤖 row on every result card. `buildShareText(row)` assembles a clean multi-line summary
+      (HS code, description in the active language, duty/VAT/extra-tax/environmental-tax line,
+      permit-required line when one applies, tariff-book page, and a branded link back to the
+      app) and `shareResult()` hands it to `navigator.share()` on mobile (so it drops straight
+      into WhatsApp/email/Notes) or copies it to the clipboard with a "✓ Copied" flash on
+      desktop — built so Elias's clients can forward a classification to a supplier or their own
+      customs desk without retyping it.
+    - **Install walkthrough banner.** A new `#installBanner` (styled like the existing
+      `.disclaimer-simple`) shows once per device: on Android/desktop Chrome it listens for the
+      real `beforeinstallprompt` event and shows an "Install" button that triggers the native
+      prompt; on iOS Safari — which never fires that event and is most of Elias's client base in
+      Lebanon — `isIosSafari()` detects the platform directly and shows the "tap Share, then Add
+      to Home Screen" instructions instead, since nothing in Safari's own UI points that out.
+      Suppressed entirely once the app is already running installed (`isStandalone()`, covering
+      both `display-mode: standalone` and iOS's `navigator.standalone`), and dismissible
+      (remembered per-device via `Store`, the same mechanism as every other per-device
+      preference).
+    - **Bug found and fixed during this round's testing, unrelated to the three features above:**
+      `build_pwa.py` — the script that wraps the plain `hs_code_finder.html` into the installable
+      PWA — turned out to already inject its OWN older, more basic install-prompt UI (a small
+      "⬇ Install App" header button plus a bare-bones iOS hint banner) as part of the PWA-only
+      additions it splices in at build time. That code lives only in the build script, not in the
+      master file, so it wasn't visible when the master file was reviewed before starting this
+      round, and it duplicated the new install banner well enough that the built `pwa/index.html`
+      ended up with the install-prompt logic declared twice (`let deferredInstallPrompt` twice in
+      the same scope), which is a hard JavaScript syntax error — it broke the ENTIRE script on
+      that page, silently taking search, favorites, and every other feature down with it, not just
+      the install banner. Caught immediately by the round-15 Playwright test suite (test 1 and 2
+      failed with `pageerror: Identifier 'deferredInstallPrompt' has already been declared`)
+      before anything was deployed. Fixed by removing the old, more basic install-btn/iOS-hint
+      block from `build_pwa.py` entirely (`.install-btn`/`.ios-install-hint` CSS, the `#installBtn`
+      button and `#iosInstallHint` div in the injected header HTML, and the matching JS) and
+      keeping only the new, more complete round-15 banner as the single install-prompt mechanism
+      — the unrelated update-available banner (`#updateBanner` / `showUpdateBanner` / the service
+      worker registration and periodic update check) was left exactly as it was, since that's a
+      separate feature ("a newer version is ready, refresh") and never had anything to do with
+      installing the app in the first place.
+    - Verified via a new dedicated Playwright suite (6 scenarios): the zero-result CTA renders
+      with the exact typed query in both the message text and the WhatsApp link; the share button
+      falls back to the clipboard in headless Chrome (no `navigator.share`) with the correct
+      multi-line formatted text and flashes "✓"; desktop Chrome with no `beforeinstallprompt`
+      fired shows no banner; a spoofed iOS Safari user agent shows the banner with the correct
+      "tap Share" copy and a hidden Install button, and dismissing it persists across a reload; an
+      already-standalone iOS context (`navigator.standalone = true`) suppresses the banner
+      entirely; and a synthetic `beforeinstallprompt` event on desktop Chrome shows the banner
+      with a visible "Install" button and the "no browser needed" copy. Re-ran the full 150-word
+      vocabulary smoke test, the Arabic dialect regression set, the grouping/prominence checks,
+      and the round 12/13/14 brake-pad/frem/colier-frem/specificity checks against this build —
+      all unchanged, zero regressions (expected, since round 15 didn't touch `scoreRow`,
+      `buildIndex`, or `runSearch`).
+    - Existing branding, WhatsApp lead-gen CTA, legal disclaimer, and landed-cost calculator were
+      deliberately left as-is per Elias's explicit choice — no polish pass was done on them this
+      round.
+    - Rebuilt into `pwa/`/`pwa_flat/` and deployed.

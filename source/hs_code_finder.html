@@ -169,6 +169,41 @@
     color:var(--muted);
     white-space:nowrap;
   }
+  /* Install banner (round 15) — same visual language as .disclaimer-simple (they're both
+     one-line, dismissible informational bars) but its own accent-colored border so it doesn't
+     get mistaken for another legal notice. */
+  .install-banner{
+    max-width:920px;
+    margin:10px auto 0;
+    padding:9px 14px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+    background:var(--panel2);
+    border:1px solid var(--accent2);
+    border-radius:var(--radius);
+    font-size:0.82rem;
+    color:var(--text);
+  }
+  .install-banner-actions{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex:0 0 auto;
+    white-space:nowrap;
+  }
+  .install-banner-actions button{
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+    font-weight:600;
+    font-size:0.8rem;
+    padding:6px 12px;
+  }
+  #installActionBtn{ background:var(--accent2); color:#ffffff; }
+  #installDismissBtn{ background:transparent; color:var(--muted); padding:6px 8px; }
   .changelog-entry{
     padding:10px 0;
     border-bottom:1px solid var(--border);
@@ -1064,6 +1099,14 @@
     </div>
   </div>
 </header>
+
+<div class="install-banner" id="installBanner" style="display:none;">
+  <span id="installBannerText"></span>
+  <div class="install-banner-actions">
+    <button type="button" id="installActionBtn" style="display:none;">Install</button>
+    <button type="button" id="installDismissBtn" title="Dismiss">✕</button>
+  </div>
+</div>
 
 <div class="disclaimer-simple" id="disclaimerSimple">
   <span>ℹ️ Codes and rates are from Lebanon's official customs tariff book — always double-check anything important against the original document.</span>
@@ -8514,6 +8557,7 @@ function renderCard(row){
       <button class="icon-btn" data-action="teach" data-code="${row.code}" title="Teach a word for this code">🎓</button>
       <button class="icon-btn" data-action="calc" data-code="${row.code}" title="Calculate duty &amp; taxes for this code">🧮</button>
       <button class="icon-btn" data-action="ai" data-code="${row.code}" title="Ask AI about this classification (opens Claude in a new tab, and copies the question too)">🤖</button>
+      <button class="icon-btn" data-action="share" data-code="${row.code}" title="Share the full result — code, description &amp; duty/tax — for a supplier email or WhatsApp">📤</button>
     </div>
   </div>`;
 }
@@ -8605,6 +8649,28 @@ function renderWaCta(topRow){
   </div>`;
 }
 
+/* Zero-result CTA (round 15): the app has no backend, so there was previously no way for Elias
+   to learn about a search that came up empty other than a client mentioning it in person —
+   exactly the kind of gap this dictionary keeps needing patched (round 12-14 all started from
+   Elias personally noticing one). Turning "no matches" into a one-tap WhatsApp message, with
+   the exact term the person typed already filled in, closes that loop in real time instead of
+   relying on aggregate analytics (which this static, account-free site has no way to collect
+   anyway) — every miss becomes an actionable message instead of a silently lost search. */
+function renderNoMatchCta(query){
+  const q = (query || "").trim();
+  const msg = `Hi, I searched "${q}" on your HS Code Finder but didn't get a match. Can you help me find the right code?`;
+  const waHref = "https://wa.me/9613143079?text=" + encodeURIComponent(msg);
+  return `
+  <div class="wa-cta">
+    <div class="wa-cta-icon" aria-hidden="true">📩</div>
+    <div class="wa-cta-text">
+      <b>Can't find it?</b>
+      <span>Send "${escapeHtml(q)}" straight to Freight Solutions SAL and we'll find the right code for you.</span>
+    </div>
+    <a class="wa-cta-btn" href="${waHref}" target="_blank" rel="noopener">Ask on WhatsApp →</a>
+  </div>`;
+}
+
 /* "Ask AI" shortcut: the app is fully offline/dependency-free by design (no bundled API key, no
    backend), so this doesn't call an AI API directly. Instead it builds a plain-language question
    from the code's own data (description, duty/VAT/tax rates, permit flag if any) and opens it in
@@ -8635,6 +8701,51 @@ function openAskAI(code){
   if(!prompt) return;
   navigator.clipboard?.writeText(prompt).catch(()=>{});
   window.open("https://claude.ai/new?q=" + encodeURIComponent(prompt), "_blank", "noopener");
+}
+
+/* ============================= SHARE RESULT (round 15) ============================= */
+/* A client who finds their code on-screen still has to retype it into an email to their
+   supplier or a WhatsApp to their broker — this builds that message for them: code,
+   description, and every duty/tax/permit line already shown on the card, plus a link back to
+   the app itself so whoever they send it to can look up their own next shipment (a small but
+   real distribution loop for Freight Solutions SAL, the same instinct as the WhatsApp lead-gen
+   CTA). Uses the native share sheet on a phone (`navigator.share`) so it goes straight to
+   WhatsApp/Mail/Notes/etc. without an extra copy-paste step; falls back to the clipboard (via
+   the same `flashStatus` "✓" pattern as the plain code-copy button) wherever the Web Share API
+   isn't available, e.g. desktop Chrome. */
+function buildShareText(row){
+  if(!row) return "";
+  const desc = ((currentLang === "ar" ? row.ar : (row.en || row.ar)) || "").trim();
+  const lines = [`HS Code: ${row.code}`];
+  if(desc) lines.push(desc);
+  const taxBits = [];
+  if(row.duty !== "" && row.duty !== undefined) taxBits.push(`Duty ${row.duty}%`);
+  if(row.vat !== "" && row.vat !== undefined) taxBits.push(`VAT ${row.vat}%`);
+  if(row.extraTax) taxBits.push(`+${row.extraTax}% tax`);
+  if(row.envTax) taxBits.push(`+${row.envTax}% environmental tax`);
+  if(taxBits.length) lines.push(taxBits.join(" · "));
+  const permitInfo = getPermitInfo(row.code);
+  if(permitInfo) lines.push(`Permit required: ${permitInfo.ministry}`);
+  if(row.page) lines.push(`Tariff book p.${row.page}`);
+  lines.push("");
+  lines.push("Looked up with Freight Solutions SAL's HS Code Finder — https://eliasmefleh-a11y.github.io/hs-code-finder/");
+  return lines.join("\n");
+}
+async function shareResult(code, btnEl){
+  const row = findByCode(code);
+  const text = buildShareText(row);
+  if(!text) return;
+  if(navigator.share){
+    try{
+      await navigator.share({ text });
+      return;
+    }catch(e){
+      // User cancelled the native share sheet, or the platform rejected it — fall through to
+      // the clipboard below rather than leaving them with nothing.
+    }
+  }
+  navigator.clipboard?.writeText(text).catch(()=>{});
+  if(btnEl) flashStatus(btnEl, "Copied");
 }
 
 /* A plain a-z query (no Arabizi-marker digits) that already has a confident, direct English
@@ -8715,7 +8826,7 @@ function renderResults(){
   countEl.textContent = `${results.length} result${results.length!==1?'s':''}`;
   if(results.length === 0){
     list.innerHTML = `<div class="empty-state">No matches. Try a different spelling, a broader word, or an HS chapter number.</div>`;
-    if(waCta) waCta.innerHTML = "";
+    if(waCta) waCta.innerHTML = renderNoMatchCta(qTrim);
   } else {
     // Group same-heading sub-codes and reset the picked-option/expanded-others state only when
     // the query itself changed — see the comment on groupPicks/otherMatchesExpanded above for why.
@@ -8822,6 +8933,7 @@ document.getElementById("resultsList").addEventListener("click", e => {
   const teachBtn = e.target.closest('[data-action="teach"]');
   const calcBtn = e.target.closest('[data-action="calc"]');
   const aiBtn = e.target.closest('[data-action="ai"]');
+  const shareBtn = e.target.closest('[data-action="share"]');
   const groupPickBtn = e.target.closest('[data-action="group-pick"]');
   const groupBackBtn = e.target.closest('[data-action="group-back"]');
   const otherToggleBtn = e.target.closest('[data-action="toggle-other"]');
@@ -8842,6 +8954,8 @@ document.getElementById("resultsList").addEventListener("click", e => {
   } else if(aiBtn){
     openAskAI(aiBtn.dataset.code);
     flashStatus(aiBtn, "Opened + copied");
+  } else if(shareBtn){
+    shareResult(shareBtn.dataset.code, shareBtn);
   } else if(groupPickBtn){
     groupPicks.set(groupPickBtn.dataset.group, groupPickBtn.dataset.code);
     renderResults();
@@ -8862,11 +8976,13 @@ document.getElementById("favoritesList").addEventListener("click", e => {
   const teachBtn = e.target.closest('[data-action="teach"]');
   const calcBtn = e.target.closest('[data-action="calc"]');
   const aiBtn = e.target.closest('[data-action="ai"]');
+  const shareBtn = e.target.closest('[data-action="share"]');
   if(favBtn){ toggleFavorite(favBtn.dataset.code); renderFavorites(); }
   else if(copyBtn){ navigator.clipboard?.writeText(copyBtn.dataset.code).catch(()=>{}); }
   else if(teachBtn){ openTeachModal(teachBtn.dataset.code); }
   else if(calcBtn){ openCalculatorForCode(calcBtn.dataset.code); }
   else if(aiBtn){ openAskAI(aiBtn.dataset.code); flashStatus(aiBtn, "Opened + copied"); }
+  else if(shareBtn){ shareResult(shareBtn.dataset.code, shareBtn); }
 });
 document.getElementById("clearFavsBtn").addEventListener("click", () => {
   setFavorites([]); renderFavorites();
@@ -9779,9 +9895,75 @@ document.getElementById("resetDataBtn").addEventListener("click", () => {
   }
 });
 
+/* ============================= INSTALL PROMPT (round 15) ============================= */
+/* Two real "install this as an app" paths exist and neither is obvious to a first-time visitor.
+   Android/desktop Chrome supports a native `beforeinstallprompt` event we can trigger from our
+   OWN visible button instead of hoping someone notices the browser's own small address-bar
+   icon. iOS Safari — very likely most of Elias's clients, in Lebanon — never fires that event at
+   all; the ONLY way to install there is Share -> Add to Home Screen, a step nothing in Safari's
+   UI calls out on its own, so without this banner most iPhone users would never realize the app
+   can live on their home screen instead of being re-found in a browser tab every time. Shown
+   once per device (dismissible, remembered the same way as every other per-device preference
+   here via Store), and never shown at all once the app is already running installed
+   (display-mode:standalone, or iOS's own `navigator.standalone`), since there's nothing left to
+   install at that point. */
+const INSTALL_DISMISSED_KEY = "hscf_install_banner_dismissed";
+let deferredInstallPrompt = null;
+function isStandalone(){
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+function isIosSafari(){
+  const ua = navigator.userAgent;
+  // iPadOS 13+ reports as "MacIntel" with touch support, not "iPad", so both checks are needed.
+  const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+  return isIos && isSafari;
+}
+function showInstallBanner(){
+  if(isStandalone() || Store.get(INSTALL_DISMISSED_KEY, false)) return;
+  const banner = document.getElementById("installBanner");
+  const text = document.getElementById("installBannerText");
+  const actionBtn = document.getElementById("installActionBtn");
+  if(!banner || !text || !actionBtn) return;
+  if(deferredInstallPrompt){
+    text.textContent = "📲 Install this app on your phone for one-tap access, no browser needed.";
+    actionBtn.style.display = "";
+  } else if(isIosSafari()){
+    text.textContent = "📲 Install this app: tap the Share button below, then \"Add to Home Screen\".";
+    actionBtn.style.display = "none";
+  } else {
+    return; // no install path available right now
+  }
+  banner.style.display = "";
+}
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault(); // suppress the browser's own mini-infobar so our banner is the one path
+  deferredInstallPrompt = e;
+  showInstallBanner();
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  const banner = document.getElementById("installBanner");
+  if(banner) banner.style.display = "none";
+});
+document.getElementById("installActionBtn").addEventListener("click", async () => {
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice.catch(()=>{});
+  deferredInstallPrompt = null;
+  document.getElementById("installBanner").style.display = "none";
+});
+document.getElementById("installDismissBtn").addEventListener("click", () => {
+  Store.set(INSTALL_DISMISSED_KEY, true);
+  document.getElementById("installBanner").style.display = "none";
+});
+
 /* ============================= INIT ============================= */
 loadData();
 renderResults();
+// iOS Safari never fires `beforeinstallprompt`, so it's checked directly here rather than
+// waiting for an event that will never come on that platform.
+if(isIosSafari() && !isStandalone()) showInstallBanner();
 </script>
 </body>
 </html>

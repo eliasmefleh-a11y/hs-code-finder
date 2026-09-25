@@ -36,39 +36,7 @@ HEAD_NEW = '''<title>HS Code Finder — كاشف رموز التعرفة الج�
 <style>'''
 
 CSS_OLD = "  .disclaimer{\n    max-width:920px;\n    margin:8px auto 0;"
-CSS_NEW = '''  .install-btn{
-    padding:6px 12px;
-    border-radius:999px;
-    background:var(--accent);
-    color:var(--accent-ink);
-    border:none;
-    font-size:0.82rem;
-    font-weight:700;
-    cursor:pointer;
-  }
-  .install-btn:hover{ opacity:0.9; }
-  .ios-install-hint{
-    max-width:920px;
-    margin:8px auto 0;
-    padding:10px 14px;
-    background:rgba(51,209,122,0.1);
-    border:1px solid rgba(51,209,122,0.35);
-    border-radius:var(--radius);
-    font-size:0.85rem;
-    color:var(--text);
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-  }
-  .ios-install-hint button{
-    background:none;
-    border:none;
-    color:var(--muted);
-    cursor:pointer;
-    font-size:1rem;
-  }
-  .update-banner{
+CSS_NEW = '''  .update-banner{
     max-width:920px;
     margin:8px auto 0;
     padding:10px 14px;
@@ -105,11 +73,6 @@ HEADER_OLD = '''      <button data-lang="en">EN</button>
 </header>'''
 HEADER_NEW = '''      <button data-lang="en">EN</button>
       <button data-lang="ar">AR</button>
-    </div>
-    <button class="install-btn" id="installBtn" style="display:none;" type="button">⬇ Install App</button>
-    <div class="ios-install-hint" id="iosInstallHint" style="display:none;">
-      Install this app: tap <b>Share</b> <span aria-hidden="true">⎋</span> then <b>Add to Home Screen</b>.
-      <button type="button" id="iosHintClose" aria-label="Dismiss">✕</button>
     </div>
     <div class="update-banner" id="updateBanner" style="display:none;">
       <span>🔄 A new version of the app is available.</span>
@@ -167,43 +130,14 @@ const updateBannerReloadBtn = document.getElementById("updateBannerReload");
 if(updateBannerReloadBtn){
   updateBannerReloadBtn.addEventListener("click", () => location.reload());
 }
-let deferredInstallPrompt = null;
-const installBtn = document.getElementById("installBtn");
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  if(installBtn) installBtn.style.display = "inline-block";
-});
-if(installBtn){
-  installBtn.addEventListener("click", async () => {
-    if(!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    installBtn.style.display = "none";
-  });
-}
-window.addEventListener("appinstalled", () => {
-  if(installBtn) installBtn.style.display = "none";
-  deferredInstallPrompt = null;
-});
-(function iosInstallHint(){
-  const ua = navigator.userAgent || "";
-  const isIOS = /iphone|ipad|ipod/i.test(ua);
-  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
-  const dismissed = Store.get("hscf_ios_hint_dismissed", false);
-  const hint = document.getElementById("iosInstallHint");
-  if(isIOS && !isStandalone && !dismissed && hint){
-    hint.style.display = "flex";
-  }
-  const closeBtn = document.getElementById("iosHintClose");
-  if(closeBtn){
-    closeBtn.addEventListener("click", () => {
-      if(hint) hint.style.display = "none";
-      Store.set("hscf_ios_hint_dismissed", true);
-    });
-  }
-})();
+/* Note: the install-prompt UI itself (beforeinstallprompt capture, the iOS
+   "tap Share -> Add to Home Screen" walkthrough, and the dismiss-once-per-device
+   banner) lives in the master file's own "INSTALL PROMPT (round 15)" block, not
+   here — this build script previously injected a second, more basic version of
+   the same thing (a bare header button + a small iOS hint), which duplicated the
+   round-15 banner and crashed the page with a duplicate `let deferredInstallPrompt`
+   declaration. Removed rather than kept side-by-side, since the round-15 banner
+   already covers both platforms in one clearer, better-styled component. */
 
 /* ============================= INIT ============================= */'''
 
